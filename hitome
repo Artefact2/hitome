@@ -33,6 +33,7 @@ const CPU_IOWAIT = 5;
 const PROC_PID = 0;
 const PROC_TCOMM = 1;
 const PROC_STATE = 2;
+const PROC_PGRP = 4;
 const PROC_UTIME = 13;
 const PROC_STIME = 14;
 
@@ -311,7 +312,7 @@ function read_dmstatus(): array {
 	$status = [ microtime(true), [] ];
 	for($i = 0;; ++$i) {
 		if(!file_exists($f = '/dev/dm-'.$i)) return $status;
-		exec('sudo dmsetup status '.escapeshellarg($f).' 2>/dev/null', $table, $res);
+		exec('sudo -n dmsetup status '.escapeshellarg($f).' 2>/dev/null', $table, $res);
 		if($res !== 0) return $status;
 		foreach($table as &$t) {
 			$t = explode(' ', $t);
@@ -355,7 +356,7 @@ function format_dmcachestats(array $dmstatus): string {
 function read_procstats(): array {
 	$stats = [ microtime(true), [] ];
 	/* XXX: could be slow */
-	foreach(glob('/proc/[123456789]*/stat', GLOB_NOSORT) as $s) {
+	foreach(glob('/proc/[123456789]*/task/[123456789]*/stat', GLOB_NOSORT) as $s) {
 		$s = @file_get_contents($s);
 		if(!$s) continue; /* Process died, move on */
 		$fields = explode(' ', $s);
@@ -368,9 +369,9 @@ function read_procstats(): array {
 	return $stats;
 }
 
-function parse_cmdline($pid): ?string {
+function format_cmdline($pgrp, $pid): ?string {
 	/* May fail on occasion as processes die */
-	$cmdline = @file_get_contents('/proc/'.$pid.'/cmdline');
+	$cmdline = @file_get_contents('/proc/'.$pgrp.'/task/'.$pid.'/cmdline');
 	if(!$cmdline) return null;
 	$args = preg_split('/\\0/', $cmdline);
 	foreach($args as &$a) {
@@ -419,7 +420,7 @@ function format_procstats(array $pold, array $pnew): string {
 			$fields[PROC_PID],
 			$fields[PROC_STATE] === 'D' ? CSI_CRIT : ($fields[PROC_STATE] === 'R' ? CSI_MED : ''), $fields[PROC_STATE], CSI_RESET,
 			$ptdiff >= 80 ? CSI_CRIT : ($ptdiff >= 60 ? CSI_HIGH : ($ptdiff >= 40 ? CSI_MED : '')), $ptdiff, CSI_RESET,
-			substr(parse_cmdline($fields[PROC_PID]) ?: $fields[PROC_TCOMM], 0, 77)
+			substr(format_cmdline($fields[PROC_PGRP], $fields[PROC_PID]) ?: $fields[PROC_TCOMM], 0, 77)
 		);
 	}
 	return $r."\n";
