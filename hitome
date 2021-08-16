@@ -6,7 +6,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *	   http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -40,6 +40,7 @@ const MEMORY_REFRESH_INTERVAL_SEC = 0.1;
 const PRESSURE_REFRESH_INTERVAL_SEC = 1.0;
 const CPU_REFRESH_INTERVAL_SEC = 0.1;
 const DISK_AND_NETWORK_REFRESH_INTERVAL_SEC = 1.0;
+const DMCACHE_REFRESH_INTERVAL_SEC = 120.0; /* annoying audit spam in journal */
 const PROC_REFRESH_INTERVAL_SEC = 2.0;
 
 const BLOCK_DEVICE_BLACKLIST = '/^(dm-|loop[0-9])/';
@@ -138,7 +139,7 @@ function format_disk_and_netstats(array $dold, array $dnew, array $nold, array $
 			$r .= sprintf("%10s %10s %10s\n", "", "", "");
 		}
 	}
-	return $r;
+	return $r."\n";
 }
 
 function read_vmstats(): array {
@@ -155,7 +156,7 @@ function read_vmstats(): array {
 
 function format_vmstats(array $vms): string {
 	return sprintf(
-		"%s%10s %10s %10s %10s %10s %10s %10s %10s%s\n%10s %10s %10s %10s %s%10s%s %s%10s%s %10s %10s\n",
+		"%s%10s %10s %10s %10s %10s %10s %10s %10s%s\n%10s %10s %10s %10s %s%10s%s %s%10s%s %10s %10s\n\n",
 		CSI_HEADINGS, "ACTIVE", "INACTIVE", "CACHE/BUF", "FREE", "DIRTY", "WRITEBACK", "SWAP", "ZRAM", CSI_RESET,
 		format_bytes(4096 * ($vms[1]['nr_active_anon'] + $vms[1]['nr_active_file'])),
 		format_bytes(4096 * ($vms[1]['nr_inactive_anon'] + $vms[1]['nr_inactive_file'])),
@@ -234,7 +235,7 @@ function format_cpustats(array $cold, array $cnew): string {
 		}
 		$r .= "\n";
 	}
-	return $r;
+	return $r."\n";
 }
 
 function read_pressurestats(): array {
@@ -284,7 +285,52 @@ function format_pressurestats(array $pstats): string {
 			format_pressure($pstats[1]['io']['full'][$k])
 		);
 	}
-	return $r;
+	return $r."\n";
+}
+
+function read_dmstatus(): array {
+	$status = [ microtime(true), [] ];
+	for($i = 0;; ++$i) {
+		if(!file_exists($f = '/dev/dm-'.$i)) return $status;
+		exec('sudo dmsetup status '.escapeshellarg($f).' 2>/dev/null', $table, $res);
+		if($res !== 0) return $status;
+		foreach($table as &$t) {
+			$t = explode(' ', $t);
+		}
+		$status[1]['dm-'.$i] = $table;
+		unset($t);
+		unset($table);
+	}
+}
+
+function format_dmcachestats(array $dmstatus): string {
+	$r = sprintf(
+		"%s%10s %10s %10s %10s %10s %10s %10s %10s%s\n",
+		CSI_HEADINGS, "DM-CACHE", "CACHED", "CACHED_%", "R_HIT%", "W_HIT%", "PROMOTED", "DEMOTED", "DIRTY", CSI_RESET
+	);
+	$hascaches = false;
+
+	foreach($dmstatus[1] as $kname => $tentries) {
+		foreach($tentries as $fields) {
+			if($fields[2] !== 'cache') continue;
+			$hascaches = true;
+
+			/* https://www.kernel.org/doc/html/latest/admin-guide/device-mapper/cache.html#status */
+			$cu = explode('/', $fields[6], 2);
+			$r .= sprintf(
+				"%10s %10s %9.2f%% %9.2f%% %9.2f%% %10s %10s %s%10s%s\n",
+				$kname,
+				format_bytes($cu[0] * $fields[5] * 512),
+				100.0 * $cu[0] / $cu[1],
+				100.0 * $fields[7] / ($fields[7] + $fields[8]),
+				100.0 * $fields[9] / ($fields[9] + $fields[10]),
+				format_bytes($fields[12] * $fields[5] * 512),
+				format_bytes($fields[11] * $fields[5] * 512),
+				$fields[13] > 0 ? CSI_CRIT : '', format_bytes($fields[13] * $fields[5] * 512), CSI_RESET
+			);
+		}
+	}
+	return $hascaches ? $r."\n" : '';;
 }
 
 function read_procstats(): array {
@@ -357,7 +403,7 @@ function format_procstats(array $pold, array $pnew): string {
 			substr(parse_cmdline($fields[PROC_PID]) ?: $fields[PROC_TCOMM], 0, 77)
 		);
 	}
-	return $r;
+	return $r."\n";
 }
 
 
@@ -403,6 +449,10 @@ while(true) {
 		$ncstats = read_cpustats();
 		$fcstats = format_cpustats($cstats, $ncstats);
 	}
+	if($t - $dmcstats[0] >= DMCACHE_REFRESH_INTERVAL_SEC) {
+		$dmcstats = read_dmstatus();
+		$fdmcstats = format_dmcachestats($dmcstats);
+	}
 	if($t - $nprocstats[0] >= PROC_REFRESH_INTERVAL_SEC) {
 		$procstats = $nprocstats;
 		$nprocstats = read_procstats();
@@ -410,7 +460,7 @@ while(true) {
 	}
 
 	echo sprintf("%c[1;1H%c[0J", 27, 27);
-	echo $fvmstats, PHP_EOL, $fpstats, PHP_EOL, $fcstats, PHP_EOL, $fdstats, PHP_EOL, $fprocstats;
-    ob_flush();
+	echo $fvmstats, $fpstats, $fcstats, $fdstats, $fdmcstats, $fprocstats;
+	ob_flush();
 	usleep($m * 1000000.0);
 }

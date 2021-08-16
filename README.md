@@ -22,9 +22,17 @@ Dependencies
 
 * PHP (CLI only)
 * Linux kernel
+* Optional: sudo, dmsetup (device-mapper) for dm-cache/lvmcache support
 
 Installation
 ============
 
 * Clone the repository or download the `hitome` file.
 * Add this directory to your `$PATH` or copy/symlink `hitome` to `/usr/local/bin`.
+
+* dm-cache/lvmcache support requires adding this to your sudoers file (using `visudo`):
+  ~~~
+  Cmnd_Alias DMSETUP_STATUS = /usr/bin/dmsetup status /dev/dm-*
+  %users ALL=NOPASSWD: DMSETUP_STATUS
+  ~~~
+  You can replace `%users` by your own username.
