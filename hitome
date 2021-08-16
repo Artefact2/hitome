@@ -89,18 +89,18 @@ function read_netstats(): array {
 
 function format_bytes(float $b): string {
 	if(abs($b) >= 10000 * 1024 * 1024) {
-		return sprintf("%9.2fG", $b / 1024. / 1024. / 1024.);
+		return sprintf("%7.2fG", $b / 1024. / 1024. / 1024.);
 	}
 	if(abs($b) >= 10000 * 1024) {
-		return sprintf("%9.2fM", $b / 1024. / 1024.);
+		return sprintf("%7.2fM", $b / 1024. / 1024.);
 	}
-	return sprintf("%9.2fK", $b / 1024.);
+	return sprintf("%7.2fK", $b / 1024.);
 }
 
 function format_disk_and_netstats(array $dold, array $dnew, array $nold, array $nnew): string {
 	$r = sprintf(
-		"%s%10s %10s %10s %10s %10s %10s %10s %10s%s\n",
-		CSI_HEADINGS, "DEVICE", "READ B/s", "WRITE B/s", "PRESSURE", "", "INTERFACE", "RX B/s", "TX B/s", CSI_RESET
+		"%s%8s %8s %8s %8s %8s %8s %8s %8s%s\n",
+		CSI_HEADINGS, "DEVICE", "READ/s", "WRITE/s", "PRESSURE", "", "IFACE", "RX/s", "TX/s", CSI_RESET
 	);
 	$tdiff = $dnew[0] - $dold[0];
 	while($dnew[1] !== [] || $nnew[1] !== []) {
@@ -112,7 +112,7 @@ function format_disk_and_netstats(array $dold, array $dnew, array $nold, array $
 			/* XXX: blk size is always 512? */
 			$pressure = ($f[WEIGHTED_MS_IOS] - $e[WEIGHTED_MS_IOS]) / 1000.0 / $tdiff;
 			$r .= sprintf(
-				"%10s %10s %10s %s%10.2f%s",
+				"%8s %8s %8s %s%8.2f%s",
 				$kname,
 				format_bytes(512 * ($f[READ_SECTORS] - $e[READ_SECTORS]) / $tdiff),
 				format_bytes(512 * ($f[WRITTEN_SECTORS] - $e[WRITTEN_SECTORS]) / $tdiff),
@@ -120,10 +120,10 @@ function format_disk_and_netstats(array $dold, array $dnew, array $nold, array $
 				$pressure, CSI_RESET
 			);
 		} else {
-			$r .= sprintf("%10s %10s %10s %10s", "", "", "", "");
+			$r .= sprintf("%8s %8s %8s %8s", "", "", "", "");
 		}
 
-		$r .= sprintf(" %10s ", "");
+		$r .= sprintf(" %8s ", "");
 
 		if($nnew[1] !== []) {
 			$e = $nold[1][$k = key($nnew[1])]; /* XXX could be undefined */
@@ -131,13 +131,13 @@ function format_disk_and_netstats(array $dold, array $dnew, array $nold, array $
 			unset($nnew[1][$k]);
 
 			$r .= sprintf(
-				"%10s %10s %10s\n",
+				"%8s %8s %8s\n",
 				$k,
 				format_bytes(($f[RX_BYTES] - $e[RX_BYTES]) / $tdiff),
 				format_bytes(($f[TX_BYTES] - $e[TX_BYTES]) / $tdiff)
 			);
 		} else {
-			$r .= sprintf("%10s %10s %10s\n", "", "", "");
+			$r .= sprintf("%8s %8s %8s\n", "", "", "");
 		}
 	}
 	return $r."\n";
@@ -173,8 +173,8 @@ function read_vmstats(): array {
 
 function format_vmstats(array $vms): string {
 	return sprintf(
-		"%s%10s %10s %10s %10s %10s %10s %10s %10s%s\n%10s %10s %10s %10s %s%10s%s %s%10s%s %10s %10s\n\n",
-		CSI_HEADINGS, "ACTIVE", "INACTIVE", "CACHE/BUF", "FREE", "DIRTY", "WRITEBACK", "SWAP",
+		"%s%8s %8s %8s %8s %8s %8s %8s %8s%s\n%8s %8s %8s %8s %s%8s%s %s%8s%s %8s %8s\n\n",
+		CSI_HEADINGS, "ACTIVE", "INACTIVE", "CACHED", "FREE", "DIRTY", "W_BACK", "SWAP",
 		$vms[2] !== [] ? "ZRAM" : '',
 		CSI_RESET,
 		format_bytes(4096 * ($vms[1]['nr_active_anon'] + $vms[1]['nr_active_file'])),
@@ -229,7 +229,7 @@ function format_cpustats(array $cold, array $cnew): string {
 	});
 	$r = '';
 	foreach($table as $hdr => $fields) {
-		$r .= sprintf("%s%10s%s ", CSI_HEADINGS, $hdr, CSI_RESET);
+		$r .= sprintf("%s%8s%s ", CSI_HEADINGS, $hdr, CSI_RESET);
 		foreach($order as $k) {
 			$f = $fields[$k] / $tdiff;
 			$t = $totals[$k] / $tdiff;
@@ -277,25 +277,25 @@ function read_pressurestats(): array {
 
 function format_pressure(float $p): string {
 	if($p >= 10.0) {
-		return sprintf("%s%9.2f%%%s", CSI_CRIT, $p, CSI_RESET);
+		return sprintf("%s%7.2f%%%s", CSI_CRIT, $p, CSI_RESET);
 	}
 	if($p >= 5.0) {
-		return sprintf("%s%9.2f%%%s", CSI_HIGH, $p, CSI_RESET);
+		return sprintf("%s%7.2f%%%s", CSI_HIGH, $p, CSI_RESET);
 	}
 	if($p >= 1.0) {
-		return sprintf("%s%9.2f%%%s", CSI_MED, $p, CSI_RESET);
+		return sprintf("%s%7.2f%%%s", CSI_MED, $p, CSI_RESET);
 	}
-	return sprintf("%9.2f%%", $p);
+	return sprintf("%7.2f%%", $p);
 }
 
 function format_pressurestats(array $pstats): string {
 	$r = sprintf(
-		"%s%10s %10s %10s %10s %10s %10s %10s%s\n",
+		"%s%8s %8s %8s %8s %8s %8s %8s%s\n",
 		CSI_HEADINGS, "PSI", "SOME_CPU", "FULL_CPU", "SOME_MEM", "FULL_MEM", "SOME_IO", "FULL_IO", CSI_RESET
 	);
 	foreach([ 'avg10', 'avg60', 'avg300' ] as $k) {
 		$r .= sprintf(
-			"%10s %s %s %s %s %s %s\n",
+			"%8s %s %s %s %s %s %s\n",
 			$k,
 			format_pressure($pstats[1]['cpu']['some'][$k]),
 			format_pressure($pstats[1]['cpu']['full'][$k]),
@@ -325,7 +325,7 @@ function read_dmstatus(): array {
 
 function format_dmcachestats(array $dmstatus): string {
 	$r = sprintf(
-		"%s%10s %10s %10s %10s %10s %10s %10s %10s%s\n",
+		"%s%8s %8s %8s %8s %8s %8s %8s %8s%s\n",
 		CSI_HEADINGS, "DM-CACHE", "CACHED", "CACHED_%", "R_HIT%", "W_HIT%", "PROMOTED", "DEMOTED", "DIRTY", CSI_RESET
 	);
 	$hascaches = false;
@@ -338,7 +338,7 @@ function format_dmcachestats(array $dmstatus): string {
 			/* https://www.kernel.org/doc/html/latest/admin-guide/device-mapper/cache.html#status */
 			$cu = explode('/', $fields[6], 2);
 			$r .= sprintf(
-				"%10s %10s %9.2f%% %9.2f%% %9.2f%% %10s %10s %s%10s%s\n",
+				"%8s %8s %7.2f%% %7.2f%% %7.2f%% %8s %8s %s%8s%s\n",
 				$kname,
 				format_bytes($cu[0] * $fields[5] * 512),
 				100.0 * $cu[0] / $cu[1],
@@ -389,8 +389,8 @@ function format_cmdline($pgrp, $pid): ?string {
 
 function format_procstats(array $pold, array $pnew): string {
 	$r = sprintf(
-		"%s%10s %1s %4s %-10s%s\n",
-		CSI_HEADINGS, "PID", "S", "CPU%", "CMDLINE", CSI_RESET
+		"%s%8s %1s %4s %4s %-8s%s\n",
+		CSI_HEADINGS, "PID", "S", "IOW%", "CPU%", "CMDLINE", CSI_RESET
 	);
 	usort($pnew[1], function($a, $b) use($pold) {
 		static $prios = [ '' => -1, 'I' => 0, 'S' => 1, 'R' => 2, 'D' => 3, 'Z' => 4 ];
@@ -416,7 +416,7 @@ function format_procstats(array $pold, array $pnew): string {
 		$ptdiff /= $tdiff;
 
 		$r .= sprintf(
-			"%10.0f %s%1s%s %s%3.0f%%%s %-77s\n",
+			"%8.0f %s%1s%s %s%3.0f%%%s %s%3.0f%%%s %-58s\n",
 			$fields[PROC_PID],
 			$fields[PROC_STATE] === 'D' ? CSI_CRIT : ($fields[PROC_STATE] === 'R' ? CSI_MED : ''), $fields[PROC_STATE], CSI_RESET,
 			$ptdiff >= 80 ? CSI_CRIT : ($ptdiff >= 60 ? CSI_HIGH : ($ptdiff >= 40 ? CSI_MED : '')), $ptdiff, CSI_RESET,
