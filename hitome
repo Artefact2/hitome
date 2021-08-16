@@ -50,11 +50,12 @@ const BLOCK_DEVICE_BLACKLIST = '/^(dm-|loop[0-9])/';
 const NETWORK_DEVICE_BLACKLIST = '/^(br|tap)[0-9]/';
 const PROCESS_LINES = 9;
 
-define('CSI_HEADINGS', sprintf('%c[1m', 27));
-define('CSI_RESET', sprintf('%c[0m', 27));
-define('CSI_MED', sprintf('%c[1;93m', 27));
-define('CSI_HIGH', sprintf('%c[1;91m', 27));
-define('CSI_CRIT', sprintf('%c[1;95m', 27));
+const EOL = "\e[0K\n";
+const CSI_HEADINGS = "\e[1m";
+const CSI_RESET = "\e[0m";
+const CSI_MED = "\e[1;93m";
+const CSI_HIGH = "\e[1;91m";
+const CSI_CRIT = "\e[1;95m";
 
 
 
@@ -101,8 +102,8 @@ function format_bytes(float $b): string {
 
 function format_disk_and_netstats(array $dold, array $dnew, array $nold, array $nnew): string {
 	$r = sprintf(
-		"%s%8s %8s %8s %8s %8s %8s %8s %8s%s\n",
-		CSI_HEADINGS, "DEVICE", "READ/s", "WRITE/s", "PRESSURE", "", "IFACE", "RX/s", "TX/s", CSI_RESET
+		"%s%8s %8s %8s %8s %8s %8s %8s %8s%s%s",
+		CSI_HEADINGS, "DEVICE", "READ/s", "WRITE/s", "PRESSURE", "", "IFACE", "RX/s", "TX/s", CSI_RESET, EOL
 	);
 	$tdiff = $dnew[0] - $dold[0];
 	while($dnew[1] !== [] || $nnew[1] !== []) {
@@ -133,16 +134,17 @@ function format_disk_and_netstats(array $dold, array $dnew, array $nold, array $
 			unset($nnew[1][$k]);
 
 			$r .= sprintf(
-				"%8s %8s %8s\n",
+				"%8s %8s %8s%s",
 				$k,
 				format_bytes(($f[RX_BYTES] - $e[RX_BYTES]) / $tdiff),
-				format_bytes(($f[TX_BYTES] - $e[TX_BYTES]) / $tdiff)
+				format_bytes(($f[TX_BYTES] - $e[TX_BYTES]) / $tdiff),
+				EOL
 			);
 		} else {
-			$r .= sprintf("%8s %8s %8s\n", "", "", "");
+			$r .= sprintf("%8s %8s %8s%s", "", "", "", EOL);
 		}
 	}
-	return $r."\n";
+	return $r;
 }
 
 function read_vmstats(): array {
@@ -175,10 +177,10 @@ function read_vmstats(): array {
 
 function format_vmstats(array $vms): string {
 	return sprintf(
-		"%s%8s %8s %8s %8s %8s %8s %8s %8s%s\n%8s %8s %8s %8s %s%8s%s %s%8s%s %8s %8s\n\n",
+		"%s%8s %8s %8s %8s %8s %8s %8s %8s%s%s%8s %8s %8s %8s %s%8s%s %s%8s%s %8s %8s%s",
 		CSI_HEADINGS, "ACTIVE", "INACTIVE", "CACHED", "FREE", "DIRTY", "W_BACK", "SWAP",
 		$vms[2] !== [] ? "ZRAM" : '',
-		CSI_RESET,
+		CSI_RESET, EOL,
 		format_bytes(4096 * ($vms[1]['nr_active_anon'] + $vms[1]['nr_active_file'])),
 		format_bytes(4096 * ($vms[1]['nr_inactive_anon'] + $vms[1]['nr_inactive_file'])),
 		format_bytes(4096 * ($vms[1]['nr_active_file'] + $vms[1]['nr_inactive_file'] + $vms[1]['nr_slab_unreclaimable'] + $vms[1]['nr_slab_reclaimable'] + $vms[1]['nr_kernel_misc_reclaimable'] + $vms[1]['nr_swapcached'])),
@@ -187,7 +189,8 @@ function format_vmstats(array $vms): string {
 		format_bytes(4096 * $vms[1]['nr_dirty']), CSI_RESET,
 		$vms[1]['nr_writeback'] > 0 ? CSI_CRIT : '', format_bytes(4096 * $vms[1]['nr_writeback']), CSI_RESET,
 		format_bytes(array_sum(array_column($vms[3], 3)) * 1024 - 4096 * $vms[1]['nr_swapcached']),
-		$vms[2] !== [] ? format_bytes(array_sum(array_column($vms[2], 2))) : ''
+		$vms[2] !== [] ? format_bytes(array_sum(array_column($vms[2], 2))) : '',
+		EOL
 	);
 }
 
@@ -257,9 +260,9 @@ function format_cpustats(array $cold, array $cnew): string {
 
 			$r .= cpu_percentage_colour($t).$char.CSI_RESET;
 		}
-		$r .= "\n";
+		$r .= EOL;
 	}
-	return $r."\n";
+	return $r;
 }
 
 function read_pressurestats(): array {
@@ -294,22 +297,23 @@ function format_pressure(float $p): string {
 
 function format_pressurestats(array $pstats): string {
 	$r = sprintf(
-		"%s%8s %8s %8s %8s %8s %8s %8s%s\n",
-		CSI_HEADINGS, "PSI", "SOME_CPU", "FULL_CPU", "SOME_MEM", "FULL_MEM", "SOME_IO", "FULL_IO", CSI_RESET
+		"%s%8s %8s %8s %8s %8s %8s %8s%s%s",
+		CSI_HEADINGS, "PSI", "SOME_CPU", "FULL_CPU", "SOME_MEM", "FULL_MEM", "SOME_IO", "FULL_IO", CSI_RESET, EOL
 	);
 	foreach([ 'avg10', 'avg60', 'avg300' ] as $k) {
 		$r .= sprintf(
-			"%8s %s %s %s %s %s %s\n",
+			"%8s %s %s %s %s %s %s%s",
 			$k,
 			format_pressure($pstats[1]['cpu']['some'][$k]),
 			format_pressure($pstats[1]['cpu']['full'][$k]),
 			format_pressure($pstats[1]['memory']['some'][$k]),
 			format_pressure($pstats[1]['memory']['full'][$k]),
 			format_pressure($pstats[1]['io']['some'][$k]),
-			format_pressure($pstats[1]['io']['full'][$k])
+			format_pressure($pstats[1]['io']['full'][$k]),
+			EOL
 		);
 	}
-	return $r."\n";
+	return $r;
 }
 
 function read_dmstatus(): array {
@@ -329,8 +333,8 @@ function read_dmstatus(): array {
 
 function format_dmcachestats(array $dmstatus): string {
 	$r = sprintf(
-		"%s%8s %8s %8s %8s %8s %8s %8s %8s%s\n",
-		CSI_HEADINGS, "DM-CACHE", "CACHED", "CACHED_%", "R_HIT%", "W_HIT%", "PROMOTED", "DEMOTED", "DIRTY", CSI_RESET
+		"%s%8s %8s %8s %8s %8s %8s %8s %8s%s%s",
+		CSI_HEADINGS, "DM-CACHE", "CACHED", "CACHED_%", "R_HIT%", "W_HIT%", "PROMOTED", "DEMOTED", "DIRTY", CSI_RESET, EOL
 	);
 	$hascaches = false;
 
@@ -342,7 +346,7 @@ function format_dmcachestats(array $dmstatus): string {
 			/* https://www.kernel.org/doc/html/latest/admin-guide/device-mapper/cache.html#status */
 			$cu = explode('/', $fields[6], 2);
 			$r .= sprintf(
-				"%8s %8s %7.2f%% %7.2f%% %7.2f%% %8s %8s %s%8s%s\n",
+				"%8s %8s %7.2f%% %7.2f%% %7.2f%% %8s %8s %s%8s%s%s",
 				$kname,
 				format_bytes($cu[0] * $fields[5] * 512),
 				100.0 * $cu[0] / $cu[1],
@@ -350,11 +354,12 @@ function format_dmcachestats(array $dmstatus): string {
 				100.0 * $fields[9] / ($fields[9] + $fields[10]),
 				format_bytes($fields[12] * $fields[5] * 512),
 				format_bytes($fields[11] * $fields[5] * 512),
-				$fields[13] > 0 ? CSI_CRIT : '', format_bytes($fields[13] * $fields[5] * 512), CSI_RESET
+				$fields[13] > 0 ? CSI_CRIT : '', format_bytes($fields[13] * $fields[5] * 512), CSI_RESET,
+				EOL
 			);
 		}
 	}
-	return $hascaches ? $r."\n" : '';;
+	return $hascaches ? $r : '';
 }
 
 function read_procstats(): array {
@@ -405,8 +410,8 @@ function format_cmdline(array $g, array $p) {
 
 function format_procstats(array $pold, array $pnew): string {
 	$r = sprintf(
-		"%s%8s %1s %4s %4s %-8s%s\n",
-		CSI_HEADINGS, "PID", "S", "IOW%", "CPU%", "CMDLINE", CSI_RESET
+		"%s%8s %1s %4s %4s %-8s%s%s",
+		CSI_HEADINGS, "PID", "S", "IOW%", "CPU%", "CMDLINE", CSI_RESET, EOL
 	);
 	$tdiff = $pnew[0] - $pold[0];
 	$iopc = $cpupc = [];
@@ -424,18 +429,17 @@ function format_procstats(array $pold, array $pnew): string {
 	uksort($pnew[1], function($a, $b) use($iopc, $cpupc) { return $iopc[$b] + $cpupc[$b] - $iopc[$a] - $cpupc[$a]; });
 	foreach(array_slice($pnew[1], 0, PROCESS_LINES) as $fields) {
 		$r .= sprintf(
-			"%8.0f %s%1s%s %s%3.0f%%%s %s%3.0f%%%s %-58s\n",
+			"%8.0f %s%1s%s %s%3.0f%%%s %s%3.0f%%%s %-58s%s",
 			$fields[PROC_PID],
 			$fields[PROC_STATE] === 'D' ? CSI_CRIT : ($fields[PROC_STATE] === 'R' ? CSI_MED : ''), $fields[PROC_STATE], CSI_RESET,
 			cpu_percentage_colour($iopc[$fields[PROC_PID]]), $iopc[$fields[PROC_PID]], CSI_RESET,
 			cpu_percentage_colour($cpupc[$fields[PROC_PID]]), $cpupc[$fields[PROC_PID]], CSI_RESET,
-			substr(format_cmdline($pnew[1][$fields[PROC_PPID]] ?: $fields, $fields), 0, 58) /* XXX */
+			substr(format_cmdline($pnew[1][$fields[PROC_PPID]] ?: $fields, $fields), 0, 58), /* XXX */
+			EOL
 		);
 	}
-	return $r."\n";
+	return $r;
 }
-
-
 
 
 
@@ -453,7 +457,7 @@ $m = min(DISK_AND_NETWORK_REFRESH_INTERVAL_SEC, CPU_REFRESH_INTERVAL_SEC, PROC_R
 printf("Waiting for %.2f seconds to collect statistics...\n", $M);
 usleep($M * 1000000.0);
 
-ob_start();
+echo "\e[1;1H\e[0J";
 while(true) {
 	$t = microtime(true);
 	if($t - $vmstats[0] >= MEMORY_REFRESH_INTERVAL_SEC) {
@@ -488,8 +492,12 @@ while(true) {
 		$fprocstats = format_procstats($procstats, $nprocstats);
 	}
 
-	echo sprintf("%c[1;1H%c[0J", 27, 27);
-	echo $fvmstats, $fpstats, $fcstats, $fdstats, $fdmcstats, $fprocstats;
-	ob_flush();
+	echo "\e[1;1H",
+		$fvmstats, EOL,
+		$fpstats, EOL,
+		$fcstats, EOL,
+		$fdstats, EOL,
+		$fdmcstats, $fdmcstats !== '' ? EOL : '',
+		$fprocstats, "\e[0J";
 	usleep($m * 1000000.0);
 }
