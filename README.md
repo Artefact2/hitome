@@ -7,6 +7,8 @@ system resources. It aims to be a lighter version of
 
 Released under the Apache License, version 2.0.
 
+![](./demo.gif)
+
 Features
 ========
 
