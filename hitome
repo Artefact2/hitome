@@ -150,14 +150,32 @@ function read_vmstats(): array {
 		$stats[1][$k] = $v;
 	}
 
-	$stats[] = preg_split("/\\s+/", trim(file_get_contents('/sys/block/zram0/mm_stat')));
+	$zrams = [];
+	for($i = 0;; ++$i) {
+		if(!file_exists($f = '/sys/block/zram'.$i.'/mm_stat')) break;
+		$zrams['zram'.$i] = preg_split('/\\s+/', trim(file_get_contents($f)));
+	}
+	$stats[] = $zrams;
+
+	$swaps = explode("\n", file_get_contents("/proc/swaps"));
+	$fswaps = [];
+	array_shift($swaps);
+	array_pop($swaps);
+	foreach($swaps as $sline) {
+		$fields = preg_split('/\\s+/', $sline);
+		$fswaps[$fields[0]] = $fields;
+	}
+	$stats[] = $fswaps;
+
 	return $stats;
 }
 
 function format_vmstats(array $vms): string {
 	return sprintf(
 		"%s%10s %10s %10s %10s %10s %10s %10s %10s%s\n%10s %10s %10s %10s %s%10s%s %s%10s%s %10s %10s\n\n",
-		CSI_HEADINGS, "ACTIVE", "INACTIVE", "CACHE/BUF", "FREE", "DIRTY", "WRITEBACK", "SWAP", "ZRAM", CSI_RESET,
+		CSI_HEADINGS, "ACTIVE", "INACTIVE", "CACHE/BUF", "FREE", "DIRTY", "WRITEBACK", "SWAP",
+		$vms[2] !== [] ? "ZRAM" : '',
+		CSI_RESET,
 		format_bytes(4096 * ($vms[1]['nr_active_anon'] + $vms[1]['nr_active_file'])),
 		format_bytes(4096 * ($vms[1]['nr_inactive_anon'] + $vms[1]['nr_inactive_file'])),
 		format_bytes(4096 * ($vms[1]['nr_active_file'] + $vms[1]['nr_inactive_file'] + $vms[1]['nr_slab_unreclaimable'] + $vms[1]['nr_slab_reclaimable'] + $vms[1]['nr_kernel_misc_reclaimable'] + $vms[1]['nr_swapcached'])),
@@ -165,7 +183,8 @@ function format_vmstats(array $vms): string {
 		$vms[1]['nr_dirty'] >= $vms[1]['nr_dirty_threshold'] ? CSI_CRIT : ($vms[1]['nr_dirty'] >= $vms[1]['nr_dirty_background_threshold'] ? CSI_HIGH : ''),
 		format_bytes(4096 * $vms[1]['nr_dirty']), CSI_RESET,
 		$vms[1]['nr_writeback'] > 0 ? CSI_CRIT : '', format_bytes(4096 * $vms[1]['nr_writeback']), CSI_RESET,
-		format_bytes($vms[2][0] - 4096 * $vms[1]['nr_swapcached']), format_bytes($vms[2][2])
+		format_bytes(array_sum(array_column($vms[3], 3)) * 1024 - 4096 * $vms[1]['nr_swapcached']),
+		$vms[2] !== [] ? format_bytes(array_sum(array_column($vms[2], 2))) : ''
 	);
 }
 
