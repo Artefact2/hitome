@@ -408,39 +408,27 @@ function format_procstats(array $pold, array $pnew): string {
 		"%s%8s %1s %4s %4s %-8s%s\n",
 		CSI_HEADINGS, "PID", "S", "IOW%", "CPU%", "CMDLINE", CSI_RESET
 	);
-	uasort($pnew[1], function($a, $b) use($pold) {
-		static $prios = [ '' => -1, 'I' => 0, 'S' => 1, 'R' => 2, 'D' => 3, 'Z' => 4 ];
-		if($prios[$b[PROC_STATE]] !== $prios[$a[PROC_STATE]]) {
-			return $prios[$b[PROC_STATE]] - $prios[$a[PROC_STATE]];
-		}
-		$atime = $a[PROC_UTIME] + $a[PROC_STIME] + $a[PROC_BLKIO_TICKS];
-		if(isset($pold[1][$a[PROC_PID]])) {
-			$atime -= $pold[1][$a[PROC_PID]][PROC_UTIME] + $pold[1][$a[PROC_PID]][PROC_STIME] + $pold[1][$a[PROC_PID]][PROC_BLKIO_TICKS];
-		}
-		$btime = $b[PROC_UTIME] + $b[PROC_STIME] + $b[PROC_BLKIO_TICKS];
-		if(isset($pold[1][$b[PROC_PID]])) {
-			$btime -= $pold[1][$b[PROC_PID]][PROC_UTIME] + $pold[1][$b[PROC_PID]][PROC_STIME] + $pold[1][$b[PROC_PID]][PROC_BLKIO_TICKS];
-		}
-		return $btime - $atime;
-	});
 	$tdiff = $pnew[0] - $pold[0];
-	foreach(array_slice($pnew[1], 0, PROCESS_LINES) as $fields) {
-		$ptdiff = $fields[PROC_UTIME] + $fields[PROC_STIME];
-		$iowdiff = $fields[PROC_BLKIO_TICKS];
-		if(isset($pold[1][$fields[PROC_PID]])) {
-			$ptdiff -= $pold[1][$fields[PROC_PID]][PROC_UTIME] + $pold[1][$fields[PROC_PID]][PROC_STIME];
-			$iowdiff -= $pold[1][$fields[PROC_PID]][PROC_BLKIO_TICKS];
+	$iopc = $cpupc = [];
+	foreach($pnew[1] as $pid => $f) {
+		if(isset($pold[1][$pid])) {
+			$of = $pold[1][$pid];
+			$iopc[$pid] = ($f[PROC_BLKIO_TICKS] - $of[PROC_BLKIO_TICKS]) / $tdiff;
+			$cpupc[$pid] = ($f[PROC_UTIME] + $f[PROC_STIME] - $of[PROC_UTIME] - $of[PROC_STIME]) / $tdiff;
+		} else {
+			$ptdiff = $pnew[2][0] - $f[PROC_START_TIME] / 100.0;
+			$iopc[$pid] = $f[PROC_BLKIO_TICKS] / $ptdiff;
+			$cpupc[$pid] = ($f[PROC_UTIME] + $f[PROC_STIME]) / $ptdiff;
 		}
-		$alivesecs = $pnew[2][0] - $fields[PROC_START_TIME] / 100.0;
-		$ptdiff /= min($alivesecs, $tdiff);
-		$iowdiff /= min($alivesecs, $tdiff);
-
+	}
+	uksort($pnew[1], function($a, $b) use($iopc, $cpupc) { return $iopc[$b] + $cpupc[$b] - $iopc[$a] - $cpupc[$a]; });
+	foreach(array_slice($pnew[1], 0, PROCESS_LINES) as $fields) {
 		$r .= sprintf(
 			"%8.0f %s%1s%s %s%3.0f%%%s %s%3.0f%%%s %-58s\n",
 			$fields[PROC_PID],
 			$fields[PROC_STATE] === 'D' ? CSI_CRIT : ($fields[PROC_STATE] === 'R' ? CSI_MED : ''), $fields[PROC_STATE], CSI_RESET,
-			cpu_percentage_colour($iowdiff), $iowdiff, CSI_RESET,
-			cpu_percentage_colour($ptdiff), $ptdiff, CSI_RESET,
+			cpu_percentage_colour($iopc[$fields[PROC_PID]]), $iopc[$fields[PROC_PID]], CSI_RESET,
+			cpu_percentage_colour($cpupc[$fields[PROC_PID]]), $cpupc[$fields[PROC_PID]], CSI_RESET,
 			substr(format_cmdline($pnew[1][$fields[PROC_PPID]] ?: $fields, $fields), 0, 58) /* XXX */
 		);
 	}
