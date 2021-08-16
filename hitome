@@ -1,0 +1,416 @@
+#!/usr/bin/env php
+<?php
+/* Copyright 2021 Romain "Artefact2" Dal Maso <romain.dalmaso@artefact2.com>
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
+/* https://www.kernel.org/doc/Documentation/iostats.txt */
+const READ_SECTORS = 5;
+const WRITTEN_SECTORS = 9;
+const IOS_IN_PROGRESS = 11;
+const WEIGHTED_MS_IOS = 13;
+
+/* https://www.kernel.org/doc/html/latest/filesystems/proc.html */
+const RX_BYTES = 1;
+const TX_BYTES = 9;
+const CPU_USER = 1;
+const CPU_NICE = 2;
+const CPU_SYSTEM = 3;
+const CPU_IDLE = 4;
+const CPU_IOWAIT = 5;
+const PROC_PID = 0;
+const PROC_TCOMM = 1;
+const PROC_STATE = 2;
+const PROC_UTIME = 13;
+const PROC_STIME = 14;
+
+const MEMORY_REFRESH_INTERVAL_SEC = 0.1;
+const PRESSURE_REFRESH_INTERVAL_SEC = 1.0;
+const CPU_REFRESH_INTERVAL_SEC = 0.1;
+const DISK_AND_NETWORK_REFRESH_INTERVAL_SEC = 1.0;
+const PROC_REFRESH_INTERVAL_SEC = 2.0;
+
+const BLOCK_DEVICE_BLACKLIST = '/^(dm-|loop[0-9])/';
+const NETWORK_DEVICE_BLACKLIST = '/^(br|tap)[0-9]/';
+const PROCESS_LINES = 9;
+
+define('CSI_HEADINGS', sprintf('%c[1m', 27));
+define('CSI_RESET', sprintf('%c[0m', 27));
+define('CSI_MED', sprintf('%c[1;93m', 27));
+define('CSI_HIGH', sprintf('%c[1;91m', 27));
+define('CSI_CRIT', sprintf('%c[1;95m', 27));
+
+
+
+function read_diskstats(): array {
+	$stats = [ microtime(true), [] ];
+
+	foreach(explode("\n", file_get_contents('/proc/diskstats')) as $dev) {
+		if($dev === '') continue;
+		$fields = preg_split("/\\s+/", ltrim($dev));
+		if(preg_match(BLOCK_DEVICE_BLACKLIST, $fields[2])) continue;
+		if(isset($stats[1][substr($fields[2], 0, -1)])) continue; /* skip partitions */
+		$stats[1][$fields[2]] = $fields;
+	}
+
+	return $stats;
+}
+
+function read_netstats(): array {
+	$data = [ microtime(true), [] ];
+
+	$k = explode("\n", file_get_contents('/proc/net/dev'));
+	array_shift($k);
+	array_shift($k);
+	array_pop($k);
+	foreach($k as $line) {
+		$fields = preg_split("/\\s+/", ltrim($line));
+		$ifname = substr($fields[0], 0, -1);
+		if(preg_match(NETWORK_DEVICE_BLACKLIST, $ifname)) continue;
+		$data[1][$ifname] = $fields;
+	}
+
+	return $data;
+}
+
+function format_bytes(float $b): string {
+	if(abs($b) >= 10000 * 1024 * 1024) {
+		return sprintf("%9.2fG", $b / 1024. / 1024. / 1024.);
+	}
+	if(abs($b) >= 10000 * 1024) {
+		return sprintf("%9.2fM", $b / 1024. / 1024.);
+	}
+	return sprintf("%9.2fK", $b / 1024.);
+}
+
+function format_disk_and_netstats(array $dold, array $dnew, array $nold, array $nnew): string {
+	$r = sprintf(
+		"%s%10s %10s %10s %10s %10s %10s %10s %10s%s\n",
+		CSI_HEADINGS, "DEVICE", "READ B/s", "WRITE B/s", "PRESSURE", "", "INTERFACE", "RX B/s", "TX B/s", CSI_RESET
+	);
+	$tdiff = $dnew[0] - $dold[0];
+	while($dnew[1] !== [] || $nnew[1] !== []) {
+		if($dnew[1] !== []) {
+			$e = $dold[1][$kname = key($dnew[1])]; /* XXX could be unset */
+			$f = $dnew[1][$kname];
+			unset($dnew[1][$kname]);
+
+			/* XXX: blk size is always 512? */
+			$pressure = ($f[WEIGHTED_MS_IOS] - $e[WEIGHTED_MS_IOS]) / 1000.0 / $tdiff;
+			$r .= sprintf(
+				"%10s %10s %10s %s%10.2f%s",
+				$kname,
+				format_bytes(512 * ($f[READ_SECTORS] - $e[READ_SECTORS]) / $tdiff),
+				format_bytes(512 * ($f[WRITTEN_SECTORS] - $e[WRITTEN_SECTORS]) / $tdiff),
+				$pressure >= 0.9 ? CSI_CRIT : '',
+				$pressure, CSI_RESET
+			);
+		} else {
+			$r .= sprintf("%10s %10s %10s %10s", "", "", "", "");
+		}
+
+		$r .= sprintf(" %10s ", "");
+
+		if($nnew[1] !== []) {
+			$e = $nold[1][$k = key($nnew[1])]; /* XXX could be undefined */
+			$f = $nnew[1][$k];
+			unset($nnew[1][$k]);
+
+			$r .= sprintf(
+				"%10s %10s %10s\n",
+				$k,
+				format_bytes(($f[RX_BYTES] - $e[RX_BYTES]) / $tdiff),
+				format_bytes(($f[TX_BYTES] - $e[TX_BYTES]) / $tdiff)
+			);
+		} else {
+			$r .= sprintf("%10s %10s %10s\n", "", "", "");
+		}
+	}
+	return $r;
+}
+
+function read_vmstats(): array {
+	$stats = [ microtime(true), []];
+	foreach(explode("\n", file_get_contents('/proc/vmstat')) as $line) {
+		if($line === '') continue;
+		list($k, $v) = explode(" ", $line);
+		$stats[1][$k] = $v;
+	}
+
+	$stats[] = preg_split("/\\s+/", trim(file_get_contents('/sys/block/zram0/mm_stat')));
+	return $stats;
+}
+
+function format_vmstats(array $vms): string {
+	return sprintf(
+		"%s%10s %10s %10s %10s %10s %10s %10s %10s%s\n%10s %10s %10s %10s %s%10s%s %s%10s%s %10s %10s\n",
+		CSI_HEADINGS, "ACTIVE", "INACTIVE", "CACHE/BUF", "FREE", "DIRTY", "WRITEBACK", "SWAP", "ZRAM", CSI_RESET,
+		format_bytes(4096 * ($vms[1]['nr_active_anon'] + $vms[1]['nr_active_file'])),
+		format_bytes(4096 * ($vms[1]['nr_inactive_anon'] + $vms[1]['nr_inactive_file'])),
+		format_bytes(4096 * ($vms[1]['nr_active_file'] + $vms[1]['nr_inactive_file'] + $vms[1]['nr_slab_unreclaimable'] + $vms[1]['nr_slab_reclaimable'] + $vms[1]['nr_kernel_misc_reclaimable'] + $vms[1]['nr_swapcached'])),
+		format_bytes(4096 * $vms[1]['nr_free_pages']),
+		$vms[1]['nr_dirty'] >= $vms[1]['nr_dirty_threshold'] ? CSI_CRIT : ($vms[1]['nr_dirty'] >= $vms[1]['nr_dirty_background_threshold'] ? CSI_HIGH : ''),
+		format_bytes(4096 * $vms[1]['nr_dirty']), CSI_RESET,
+		$vms[1]['nr_writeback'] > 0 ? CSI_CRIT : '', format_bytes(4096 * $vms[1]['nr_writeback']), CSI_RESET,
+		format_bytes($vms[2][0] - 4096 * $vms[1]['nr_swapcached']), format_bytes($vms[2][2])
+	);
+}
+
+function read_cpustats(): array {
+	$stats = [ microtime(true), [] ];
+	$k = explode("\n", file_get_contents('/proc/stat'));
+	array_pop($k);
+	foreach($k as $line) {
+		$fields = preg_split("/\\s+/", ltrim($line));
+		$stats[1][$fields[0]] = $fields;
+	}
+	return $stats;
+}
+
+function format_cpustats(array $cold, array $cnew): string {
+	$tdiff = $cnew[0] - $cold[0];
+	$i = 0; $table = []; $totals = [];
+	while(isset($cnew[1]['cpu'.$i])) {
+		$v = $cnew[1]['cpu'.$i];
+		$u = $cold[1]['cpu'.$i]; /* XXX potentially undefined */
+
+		$table['IOWAIT'][] = ($v[CPU_IOWAIT] - $u[CPU_IOWAIT]);
+		$table['SYSTEM'][] = ($v[CPU_SYSTEM] - $u[CPU_SYSTEM]);
+		$table['USER'][] = ($v[CPU_USER] - $u[CPU_USER]);
+		$table['NICE'][] = ($v[CPU_NICE] - $u[CPU_NICE]);
+
+		$v[CPU_IDLE] = $u[CPU_IDLE] = 0;
+		array_shift($v);
+		array_shift($u);
+		$totals[] = array_sum($v) - array_sum($u);
+
+		++$i;
+	}
+	$order = array_keys($table['USER']);
+	usort($order, function($u, $v) use($table, $totals) {
+		$s = $totals[$v] - $totals[$u];
+		if($s !== 0) return $s;
+		$v = array_column($table, $v);
+		$u = array_column($table, $u);
+		return max($v) - max($u);
+	});
+	$r = '';
+	foreach($table as $hdr => $fields) {
+		$r .= sprintf("%s%10s%s ", CSI_HEADINGS, $hdr, CSI_RESET);
+		foreach($order as $k) {
+			$f = $fields[$k] / $tdiff;
+			$t = $totals[$k] / $tdiff;
+
+			if($t >= 80.0) $csi = CSI_CRIT;
+			else if($t >= 60.0) $csi = CSI_HIGH;
+			else if($t >= 40.0) $csi = CSI_MED;
+			else $csi = '';
+
+			if($f >= 95.0) {
+				$char = 'X';
+			} else if($f >= 50.0) {
+				$char = '|';
+			} else if($f >= 20.0) {
+				$char = '|';
+			} else if($f >= 1.0) {
+				$char = '.';
+			} else {
+				$char = ' ';
+			}
+
+			$r .= $csi.$char.CSI_RESET;
+		}
+		$r .= "\n";
+	}
+	return $r;
+}
+
+function read_pressurestats(): array {
+	$stats = [ microtime(true), [] ];
+	foreach([ 'cpu', 'memory', 'io' ] as $type) {
+		$s = explode("\n", file_get_contents('/proc/pressure/'.$type));
+		array_pop($s);
+		foreach($s as $line) {
+			$fields = explode(' ', $line);
+			$subtype = array_shift($fields);
+			foreach($fields as $f) {
+				list($k, $v) = explode('=', $f, 2);
+				$stats[1][$type][$subtype][$k] = $v;
+			}
+		}
+	}
+	return $stats;
+}
+
+function format_pressure(float $p): string {
+	if($p >= 10.0) {
+		return sprintf("%s%9.2f%%%s", CSI_CRIT, $p, CSI_RESET);
+	}
+	if($p >= 5.0) {
+		return sprintf("%s%9.2f%%%s", CSI_HIGH, $p, CSI_RESET);
+	}
+	if($p >= 1.0) {
+		return sprintf("%s%9.2f%%%s", CSI_MED, $p, CSI_RESET);
+	}
+	return sprintf("%9.2f%%", $p);
+}
+
+function format_pressurestats(array $pstats): string {
+	$r = sprintf(
+		"%s%10s %10s %10s %10s %10s %10s %10s%s\n",
+		CSI_HEADINGS, "PSI", "SOME_CPU", "FULL_CPU", "SOME_MEM", "FULL_MEM", "SOME_IO", "FULL_IO", CSI_RESET
+	);
+	foreach([ 'avg10', 'avg60', 'avg300' ] as $k) {
+		$r .= sprintf(
+			"%10s %s %s %s %s %s %s\n",
+			$k,
+			format_pressure($pstats[1]['cpu']['some'][$k]),
+			format_pressure($pstats[1]['cpu']['full'][$k]),
+			format_pressure($pstats[1]['memory']['some'][$k]),
+			format_pressure($pstats[1]['memory']['full'][$k]),
+			format_pressure($pstats[1]['io']['some'][$k]),
+			format_pressure($pstats[1]['io']['full'][$k])
+		);
+	}
+	return $r;
+}
+
+function read_procstats(): array {
+	$stats = [ microtime(true), [] ];
+	/* XXX: could be slow */
+	foreach(glob('/proc/[123456789]*/stat', GLOB_NOSORT) as $s) {
+		$s = @file_get_contents($s);
+		if(!$s) continue; /* Process died, move on */
+		$fields = explode(' ', $s);
+		if(count($fields) < 52) continue;
+		if(count($fields) !== 52) {
+			array_splice($fields, 1, count($fields) - 51, implode(' ', array_slice($fields, 1, count($fields) - 51)));
+		}
+		$stats[1][$fields[0]] = $fields;
+	}
+	return $stats;
+}
+
+function parse_cmdline($pid): ?string {
+	/* May fail on occasion as processes die */
+	$cmdline = @file_get_contents('/proc/'.$pid.'/cmdline');
+	if(!$cmdline) return null;
+	$args = preg_split('/\\0/', $cmdline);
+	foreach($args as &$a) {
+		if(strpos($a, ' ') !== false) {
+			$a = str_replace([ "\\", "'" ], [ '\\\\', '\\\'' ], $a);
+		}
+	}
+	if($args[0][0] === '/') {
+		$p = explode('/', $args[0]);
+		$args[0] = array_pop($p);
+	}
+	$args[0] = CSI_HEADINGS.$args[0].CSI_RESET;
+	return implode(' ', $args);
+}
+
+function format_procstats(array $pold, array $pnew): string {
+	$r = sprintf(
+		"%s%10s %1s %4s %-10s%s\n",
+		CSI_HEADINGS, "PID", "S", "CPU%", "CMDLINE", CSI_RESET
+	);
+	usort($pnew[1], function($a, $b) use($pold) {
+		static $prios = [ '' => -1, 'I' => 0, 'S' => 1, 'R' => 2, 'D' => 3, 'Z' => 4 ];
+		if($prios[$b[PROC_STATE]] !== $prios[$a[PROC_STATE]]) {
+			return $prios[$b[PROC_STATE]] - $prios[$a[PROC_STATE]];
+		}
+		$atime = $a[PROC_UTIME] + $a[PROC_STIME];
+		if(isset($pold[1][$a[PROC_PID]])) {
+			$atime -= $pold[1][$a[PROC_PID]][PROC_UTIME] + $pold[1][$a[PROC_PID]][PROC_STIME];
+		}
+		$btime = $b[PROC_UTIME] + $b[PROC_STIME];
+		if(isset($pold[1][$b[PROC_PID]])) {
+			$btime -= $pold[1][$b[PROC_PID]][PROC_UTIME] + $pold[1][$b[PROC_PID]][PROC_STIME];
+		}
+		return $btime - $atime;
+	});
+	$tdiff = $pnew[0] - $pold[0];
+	foreach(array_slice($pnew[1], 0, PROCESS_LINES) as $fields) {
+		$ptdiff = $fields[PROC_UTIME] + $fields[PROC_STIME];
+		if(isset($pold[1][$fields[PROC_PID]])) {
+			$ptdiff -= $pold[1][$fields[PROC_PID]][PROC_UTIME] + $pold[1][$fields[PROC_PID]][PROC_STIME];
+		}
+		$ptdiff /= $tdiff;
+
+		$r .= sprintf(
+			"%10.0f %s%1s%s %s%3.0f%%%s %-77s\n",
+			$fields[PROC_PID],
+			$fields[PROC_STATE] === 'D' ? CSI_CRIT : ($fields[PROC_STATE] === 'R' ? CSI_MED : ''), $fields[PROC_STATE], CSI_RESET,
+			$ptdiff >= 80 ? CSI_CRIT : ($ptdiff >= 60 ? CSI_HIGH : ($ptdiff >= 40 ? CSI_MED : '')), $ptdiff, CSI_RESET,
+			substr(parse_cmdline($fields[PROC_PID]) ?: $fields[PROC_TCOMM], 0, 77)
+		);
+	}
+	return $r;
+}
+
+
+
+
+
+
+$ncstats = read_cpustats();
+$ndstats = read_diskstats();
+$nnstats = read_netstats();
+$nprocstats = read_procstats();
+$vmstats = [ 0 ];
+$pstats = [ 0 ];
+$dmcstats = [ 0 ];
+
+$M = max(DISK_AND_NETWORK_REFRESH_INTERVAL_SEC, CPU_REFRESH_INTERVAL_SEC, PROC_REFRESH_INTERVAL_SEC);
+$m = min(DISK_AND_NETWORK_REFRESH_INTERVAL_SEC, CPU_REFRESH_INTERVAL_SEC, PROC_REFRESH_INTERVAL_SEC);
+printf("Waiting for %.2f seconds to collect statistics...\n", $M);
+usleep($M * 1000000.0);
+
+ob_start();
+while(true) {
+	$t = microtime(true);
+	if($t - $vmstats[0] >= MEMORY_REFRESH_INTERVAL_SEC) {
+		$vmstats = read_vmstats();
+		$fvmstats = format_vmstats($vmstats);
+	}
+	if($t - $pstats[0] >= PRESSURE_REFRESH_INTERVAL_SEC) {
+		$pstats = read_pressurestats();
+		$fpstats = format_pressurestats($pstats);
+	}
+	if($t - $nnstats[0] >= DISK_AND_NETWORK_REFRESH_INTERVAL_SEC) {
+		$dstats = $ndstats;
+		$ndstats = read_diskstats();
+
+		$nstats = $nnstats;
+		$nnstats = read_netstats();
+
+		$fdstats = format_disk_and_netstats($dstats, $ndstats, $nstats, $nnstats);
+	}
+	if($t - $ncstats[0] >= CPU_REFRESH_INTERVAL_SEC) {
+		$cstats = $ncstats;
+		$ncstats = read_cpustats();
+		$fcstats = format_cpustats($cstats, $ncstats);
+	}
+	if($t - $nprocstats[0] >= PROC_REFRESH_INTERVAL_SEC) {
+		$procstats = $nprocstats;
+		$nprocstats = read_procstats();
+		$fprocstats = format_procstats($procstats, $nprocstats);
+	}
+
+	echo sprintf("%c[1;1H%c[0J", 27, 27);
+	echo $fvmstats, PHP_EOL, $fpstats, PHP_EOL, $fcstats, PHP_EOL, $fdstats, PHP_EOL, $fprocstats;
+    ob_flush();
+	usleep($m * 1000000.0);
+}
