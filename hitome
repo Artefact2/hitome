@@ -416,7 +416,7 @@ function format_procstats(array $pold, array $pnew): string {
 			$iopc[$pid] = ($f[PROC_BLKIO_TICKS] - $of[PROC_BLKIO_TICKS]) / $tdiff;
 			$cpupc[$pid] = ($f[PROC_UTIME] + $f[PROC_STIME] - $of[PROC_UTIME] - $of[PROC_STIME]) / $tdiff;
 		} else {
-			$ptdiff = $pnew[2][0] - $f[PROC_START_TIME] / 100.0;
+			$ptdiff = max(0.01, $pnew[2][0] - $f[PROC_START_TIME] / 100.0);
 			$iopc[$pid] = $f[PROC_BLKIO_TICKS] / $ptdiff;
 			$cpupc[$pid] = ($f[PROC_UTIME] + $f[PROC_STIME]) / $ptdiff;
 		}
