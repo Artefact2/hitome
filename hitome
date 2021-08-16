@@ -33,9 +33,11 @@ const CPU_IOWAIT = 5;
 const PROC_PID = 0;
 const PROC_TCOMM = 1;
 const PROC_STATE = 2;
-const PROC_PGRP = 4;
+const PROC_PPID = 3;
 const PROC_UTIME = 13;
 const PROC_STIME = 14;
+const PROC_START_TIME = 21;
+const PROC_BLKIO_TICKS = 41;
 
 const MEMORY_REFRESH_INTERVAL_SEC = 0.1;
 const PRESSURE_REFRESH_INTERVAL_SEC = 1.0;
@@ -200,6 +202,13 @@ function read_cpustats(): array {
 	return $stats;
 }
 
+function cpu_percentage_colour($perc): string {
+	if($perc >= 80.0) return CSI_CRIT;
+	if($perc >= 60.0) return CSI_HIGH;
+	if($perc >= 40.0) return CSI_MED;
+	return '';
+}
+
 function format_cpustats(array $cold, array $cnew): string {
 	$tdiff = $cnew[0] - $cold[0];
 	$i = 0; $table = []; $totals = [];
@@ -234,11 +243,6 @@ function format_cpustats(array $cold, array $cnew): string {
 			$f = $fields[$k] / $tdiff;
 			$t = $totals[$k] / $tdiff;
 
-			if($t >= 80.0) $csi = CSI_CRIT;
-			else if($t >= 60.0) $csi = CSI_HIGH;
-			else if($t >= 40.0) $csi = CSI_MED;
-			else $csi = '';
-
 			if($f >= 95.0) {
 				$char = 'X';
 			} else if($f >= 50.0) {
@@ -251,7 +255,7 @@ function format_cpustats(array $cold, array $cnew): string {
 				$char = ' ';
 			}
 
-			$r .= $csi.$char.CSI_RESET;
+			$r .= cpu_percentage_colour($t).$char.CSI_RESET;
 		}
 		$r .= "\n";
 	}
@@ -354,7 +358,7 @@ function format_dmcachestats(array $dmstatus): string {
 }
 
 function read_procstats(): array {
-	$stats = [ microtime(true), [] ];
+	$stats = [ microtime(true), [], explode(' ', file_get_contents('/proc/uptime')) ];
 	/* XXX: could be slow */
 	foreach(glob('/proc/[123456789]*/task/[123456789]*/stat', GLOB_NOSORT) as $s) {
 		$s = @file_get_contents($s);
@@ -369,21 +373,33 @@ function read_procstats(): array {
 	return $stats;
 }
 
-function format_cmdline($pgrp, $pid): ?string {
+function format_cmdline(array $g, array $p) {
 	/* May fail on occasion as processes die */
-	$cmdline = @file_get_contents('/proc/'.$pgrp.'/task/'.$pid.'/cmdline');
-	if(!$cmdline) return null;
+	$cmdline = @file_get_contents('/proc/'.$p[PROC_PID].'/cmdline');
+	if(!$cmdline) {
+		$cmdline = @file_get_contents('/proc/'.$p[PROC_PPID].'/task/'.$p[PROC_PID].'/cmdline');
+	}
+	if(!$cmdline) {
+		if($g[PROC_TCOMM] === $p[PROC_TCOMM]) {
+			return $p[PROC_TCOMM];
+		}
+		return substr($g[PROC_TCOMM], 0, -1).' '.substr($p[PROC_TCOMM], 1);
+	}
 	$args = preg_split('/\\0/', $cmdline);
 	foreach($args as &$a) {
 		if(strpos($a, ' ') !== false) {
-			$a = str_replace([ "\\", "'" ], [ '\\\\', '\\\'' ], $a);
+			$a = str_replace([ '\\', '"' ], [ '\\\\', '\\"' ], $a);
+			$a = '"'.$a.'"';
 		}
 	}
 	if($args[0][0] === '/') {
-		$p = explode('/', $args[0]);
-		$args[0] = array_pop($p);
+		$path = explode('/', $args[0]);
+		$args[0] = array_pop($path);
 	}
-	$args[0] = CSI_HEADINGS.$args[0].CSI_RESET;
+	$args[0] = CSI_HEADINGS.($bin = $args[0]).CSI_RESET;
+	if($bin !== substr($p[PROC_TCOMM], 1, -1)) {
+		$args[0] = $p[PROC_TCOMM].' '.$args[0];
+	}
 	return implode(' ', $args);
 }
 
@@ -392,35 +408,40 @@ function format_procstats(array $pold, array $pnew): string {
 		"%s%8s %1s %4s %4s %-8s%s\n",
 		CSI_HEADINGS, "PID", "S", "IOW%", "CPU%", "CMDLINE", CSI_RESET
 	);
-	usort($pnew[1], function($a, $b) use($pold) {
+	uasort($pnew[1], function($a, $b) use($pold) {
 		static $prios = [ '' => -1, 'I' => 0, 'S' => 1, 'R' => 2, 'D' => 3, 'Z' => 4 ];
 		if($prios[$b[PROC_STATE]] !== $prios[$a[PROC_STATE]]) {
 			return $prios[$b[PROC_STATE]] - $prios[$a[PROC_STATE]];
 		}
-		$atime = $a[PROC_UTIME] + $a[PROC_STIME];
+		$atime = $a[PROC_UTIME] + $a[PROC_STIME] + $a[PROC_BLKIO_TICKS];
 		if(isset($pold[1][$a[PROC_PID]])) {
-			$atime -= $pold[1][$a[PROC_PID]][PROC_UTIME] + $pold[1][$a[PROC_PID]][PROC_STIME];
+			$atime -= $pold[1][$a[PROC_PID]][PROC_UTIME] + $pold[1][$a[PROC_PID]][PROC_STIME] + $pold[1][$a[PROC_PID]][PROC_BLKIO_TICKS];
 		}
-		$btime = $b[PROC_UTIME] + $b[PROC_STIME];
+		$btime = $b[PROC_UTIME] + $b[PROC_STIME] + $b[PROC_BLKIO_TICKS];
 		if(isset($pold[1][$b[PROC_PID]])) {
-			$btime -= $pold[1][$b[PROC_PID]][PROC_UTIME] + $pold[1][$b[PROC_PID]][PROC_STIME];
+			$btime -= $pold[1][$b[PROC_PID]][PROC_UTIME] + $pold[1][$b[PROC_PID]][PROC_STIME] + $pold[1][$b[PROC_PID]][PROC_BLKIO_TICKS];
 		}
 		return $btime - $atime;
 	});
 	$tdiff = $pnew[0] - $pold[0];
 	foreach(array_slice($pnew[1], 0, PROCESS_LINES) as $fields) {
 		$ptdiff = $fields[PROC_UTIME] + $fields[PROC_STIME];
+		$iowdiff = $fields[PROC_BLKIO_TICKS];
 		if(isset($pold[1][$fields[PROC_PID]])) {
 			$ptdiff -= $pold[1][$fields[PROC_PID]][PROC_UTIME] + $pold[1][$fields[PROC_PID]][PROC_STIME];
+			$iowdiff -= $pold[1][$fields[PROC_PID]][PROC_BLKIO_TICKS];
 		}
-		$ptdiff /= $tdiff;
+		$alivesecs = $pnew[2][0] - $fields[PROC_START_TIME] / 100.0;
+		$ptdiff /= min($alivesecs, $tdiff);
+		$iowdiff /= min($alivesecs, $tdiff);
 
 		$r .= sprintf(
 			"%8.0f %s%1s%s %s%3.0f%%%s %s%3.0f%%%s %-58s\n",
 			$fields[PROC_PID],
 			$fields[PROC_STATE] === 'D' ? CSI_CRIT : ($fields[PROC_STATE] === 'R' ? CSI_MED : ''), $fields[PROC_STATE], CSI_RESET,
-			$ptdiff >= 80 ? CSI_CRIT : ($ptdiff >= 60 ? CSI_HIGH : ($ptdiff >= 40 ? CSI_MED : '')), $ptdiff, CSI_RESET,
-			substr(format_cmdline($fields[PROC_PGRP], $fields[PROC_PID]) ?: $fields[PROC_TCOMM], 0, 77)
+			cpu_percentage_colour($iowdiff), $iowdiff, CSI_RESET,
+			cpu_percentage_colour($ptdiff), $ptdiff, CSI_RESET,
+			substr(format_cmdline($pnew[1][$fields[PROC_PPID]] ?: $fields, $fields), 0, 58) /* XXX */
 		);
 	}
 	return $r."\n";
