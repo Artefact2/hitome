@@ -72,6 +72,7 @@ function read_diskstats(): array {
 		$stats[1][$fields[2]] = $fields;
 	}
 
+	ksort($stats[1]);
 	return $stats;
 }
 
