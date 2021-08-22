@@ -464,6 +464,45 @@ function format_procstats(array $pold, array $pnew): string {
 	return $r;
 }
 
+function line_length(string $s): int {
+	/* kill escape sequences */
+	/* XXX not multibyte friendly */
+	return strlen(preg_replace("/\e\[.*?[A-Za-z]/", '', $s));
+}
+
+function max_line_length(string $lines): int {
+	return max(array_map('line_length', explode("\n", $lines)));
+}
+
+function merge_formatted_stats(string $a, string $b): ?string {
+	$maxA = max_line_length($a);
+	if($maxA % 9) {
+		/* pad to a column boundary */
+		$maxA += 9 - ($maxA % 9);
+	}
+	$maxB = max_line_length($b);
+	if($maxA + $maxB > 71) return null; /* cannot merge */
+
+	$merged = "";
+	$a = explode("\n", rtrim($a, "\n"));
+	$b = explode("\n", rtrim($b, "\n"));
+	while($a !== [] || $b !== []) {
+		if($a !== []) {
+			$merged .= $lA = array_shift($a);
+			$merged .= str_repeat(' ', $maxA - line_length($lA));
+		} else {
+			$merged .= str_repeat(' ', $maxA);
+		}
+		if($b !== []) {
+			$merged .= array_shift($b).EOL;
+		} else {
+			$merged .= EOL;
+		}
+	}
+
+	return $merged;
+}
+
 
 
 
@@ -484,6 +523,8 @@ usleep($M * 1000000.0);
 echo "\e[1;1H\e[0J";
 while(true) {
 	$t = microtime(true);
+	$maybe_merge_cpu_net = false;
+
 	if($t - $vmstats[0] >= MEMORY_REFRESH_INTERVAL_SEC) {
 		$vmstats = read_vmstats();
 		$fvmstats = format_vmstats($vmstats);
@@ -505,11 +546,13 @@ while(true) {
 		$nstats = $nnstats;
 		$nnstats = read_netstats();
 		$fnstats = format_netstats($nstats, $nnstats);
+		$maybe_merge_cpu_net = true;
 	}
 	if($t - $ncstats[0] >= CPU_REFRESH_INTERVAL_SEC) {
 		$cstats = $ncstats;
 		$ncstats = read_cpustats();
 		$fcstats = format_cpustats($cstats, $ncstats);
+		$maybe_merge_cpu_net = true;
 	}
 	if($t - $dmcstats[0] >= DMCACHE_REFRESH_INTERVAL_SEC) {
 		$dmcstats = read_dmstatus();
@@ -521,12 +564,21 @@ while(true) {
 		$fprocstats = format_procstats($procstats, $nprocstats);
 	}
 
+	/* XXX find more elegant code */
+	if($maybe_merge_cpu_net && ($merged = merge_formatted_stats($fcstats, $fnstats)) !== null) {
+		$ffcstats = $merged;
+		$ffnstats = '';
+	} else {
+		$ffcstats = $fcstats;
+		$ffnstats = $fnstats;
+	}
+
 	echo "\e[1;1H",
 		$fvmstats, EOL,
 		$fpstats, EOL,
-		$fcstats, EOL,
+		$ffcstats, EOL,
 		$fdstats, EOL,
-		$fnstats, EOL,
+		$ffnstats, $ffnstats !== '' ? EOL : '',
 		$fdmcstats, $fdmcstats !== '' ? EOL : '',
 		$fprocstats, "\e[0J";
 	usleep($m * 1000000.0);
