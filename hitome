@@ -42,7 +42,8 @@ const PROC_BLKIO_TICKS = 41;
 const MEMORY_REFRESH_INTERVAL_SEC = 0.1;
 const PRESSURE_REFRESH_INTERVAL_SEC = 1.0;
 const CPU_REFRESH_INTERVAL_SEC = 0.1;
-const DISK_AND_NETWORK_REFRESH_INTERVAL_SEC = 1.0;
+const DISK_REFRESH_INTERVAL_SEC = 1.0;
+const NETWORK_REFRESH_INTERVAL_SEC = 1.0;
 const DMCACHE_REFRESH_INTERVAL_SEC = 120.0; /* annoying audit spam in journal */
 const PROC_REFRESH_INTERVAL_SEC = 2.0;
 
@@ -100,49 +101,44 @@ function format_bytes(float $b): string {
 	return sprintf("%7.2fK", $b / 1024.);
 }
 
-function format_disk_and_netstats(array $dold, array $dnew, array $nold, array $nnew): string {
+function format_diskstats(array $dold, array $dnew): string {
 	$r = sprintf(
-		"%s%8s %8s %8s %8s %8s %8s %8s %8s%s%s",
-		CSI_HEADINGS, "DEVICE", "READ/s", "WRITE/s", "PRESSURE", "", "IFACE", "RX/s", "TX/s", CSI_RESET, EOL
+		"%s%8s %8s %8s %8s%s%s",
+		CSI_HEADINGS, "DEVICE", "READ/s", "WRITE/s", "PRESSURE", CSI_RESET, EOL
 	);
 	$tdiff = $dnew[0] - $dold[0];
-	while($dnew[1] !== [] || $nnew[1] !== []) {
-		if($dnew[1] !== []) {
-			$e = $dold[1][$kname = key($dnew[1])]; /* XXX could be unset */
-			$f = $dnew[1][$kname];
-			unset($dnew[1][$kname]);
+	foreach($dnew[1] as $kname => $f) {
+		$e = $dold[1][$kname]; /* XXX could be unset */
 
-			/* XXX: blk size is always 512? */
-			$pressure = ($f[WEIGHTED_MS_IOS] - $e[WEIGHTED_MS_IOS]) / 1000.0 / $tdiff;
-			$r .= sprintf(
-				"%8s %8s %8s %s%8.2f%s",
-				$kname,
-				format_bytes(512 * ($f[READ_SECTORS] - $e[READ_SECTORS]) / $tdiff),
-				format_bytes(512 * ($f[WRITTEN_SECTORS] - $e[WRITTEN_SECTORS]) / $tdiff),
-				$pressure >= 0.9 ? CSI_CRIT : '',
-				$pressure, CSI_RESET
-			);
-		} else {
-			$r .= sprintf("%8s %8s %8s %8s", "", "", "", "");
-		}
+		/* XXX: blk size is always 512? */
+		$pressure = ($f[WEIGHTED_MS_IOS] - $e[WEIGHTED_MS_IOS]) / 1000.0 / $tdiff;
+		$r .= sprintf(
+			"%8s %8s %8s %s%8.2f%s%s",
+			$kname,
+			format_bytes(512 * ($f[READ_SECTORS] - $e[READ_SECTORS]) / $tdiff),
+			format_bytes(512 * ($f[WRITTEN_SECTORS] - $e[WRITTEN_SECTORS]) / $tdiff),
+			$pressure >= 0.9 ? CSI_CRIT : '', $pressure, CSI_RESET,
+			EOL
+		);
+	}
+	return $r;
+}
 
-		$r .= sprintf(" %8s ", "");
-
-		if($nnew[1] !== []) {
-			$e = $nold[1][$k = key($nnew[1])]; /* XXX could be undefined */
-			$f = $nnew[1][$k];
-			unset($nnew[1][$k]);
-
-			$r .= sprintf(
-				"%8s %8s %8s%s",
-				$k,
-				format_bytes(($f[RX_BYTES] - $e[RX_BYTES]) / $tdiff),
-				format_bytes(($f[TX_BYTES] - $e[TX_BYTES]) / $tdiff),
-				EOL
-			);
-		} else {
-			$r .= sprintf("%8s %8s %8s%s", "", "", "", EOL);
-		}
+function format_netstats(array $nold, array $nnew): string {
+	$r = sprintf(
+		"%s%8s %8s %8s%s%s",
+		CSI_HEADINGS, "IFACE", "RX/s", "TX/s", CSI_RESET, EOL
+	);
+	$tdiff = $nnew[0] - $nold[0];
+	foreach($nnew[1] as $k => $f) {
+		$e = $nold[1][$k]; /* XXX could be undefined */
+		$r .= sprintf(
+			"%8s %8s %8s%s",
+			$k,
+			format_bytes(($f[RX_BYTES] - $e[RX_BYTES]) / $tdiff),
+			format_bytes(($f[TX_BYTES] - $e[TX_BYTES]) / $tdiff),
+			EOL
+		);
 	}
 	return $r;
 }
@@ -350,8 +346,8 @@ function format_dmcachestats(array $dmstatus): string {
 				$kname,
 				format_bytes($cu[0] * $fields[5] * 512),
 				100.0 * $cu[0] / $cu[1],
-				100.0 * $fields[7] / ($fields[7] + $fields[8]),
-				100.0 * $fields[9] / ($fields[9] + $fields[10]),
+				100.0 * $fields[7] / max($fields[7] + $fields[8], 1),
+				100.0 * $fields[9] / max($fields[9] + $fields[10], 1),
 				format_bytes($fields[12] * $fields[5] * 512),
 				format_bytes($fields[11] * $fields[5] * 512),
 				$fields[13] > 0 ? CSI_CRIT : '', format_bytes($fields[13] * $fields[5] * 512), CSI_RESET,
@@ -453,8 +449,8 @@ $vmstats = [ 0 ];
 $pstats = [ 0 ];
 $dmcstats = [ 0 ];
 
-$M = max(DISK_AND_NETWORK_REFRESH_INTERVAL_SEC, CPU_REFRESH_INTERVAL_SEC, PROC_REFRESH_INTERVAL_SEC);
-$m = min(DISK_AND_NETWORK_REFRESH_INTERVAL_SEC, CPU_REFRESH_INTERVAL_SEC, PROC_REFRESH_INTERVAL_SEC);
+$M = max(DISK_REFRESH_INTERVAL_SEC, NETWORK_REFRESH_INTERVAL_SEC, CPU_REFRESH_INTERVAL_SEC, PROC_REFRESH_INTERVAL_SEC);
+$m = min(DISK_REFRESH_INTERVAL_SEC, NETWORK_REFRESH_INTERVAL_SEC, CPU_REFRESH_INTERVAL_SEC, PROC_REFRESH_INTERVAL_SEC);
 printf("Waiting for %.2f seconds to collect statistics...\n", $M);
 usleep($M * 1000000.0);
 
@@ -469,14 +465,15 @@ while(true) {
 		$pstats = read_pressurestats();
 		$fpstats = format_pressurestats($pstats);
 	}
-	if($t - $nnstats[0] >= DISK_AND_NETWORK_REFRESH_INTERVAL_SEC) {
+	if($t - $ndstats[0] >= DISK_REFRESH_INTERVAL_SEC) {
 		$dstats = $ndstats;
 		$ndstats = read_diskstats();
-
+		$fdstats = format_diskstats($dstats, $ndstats);
+	}
+	if($t - $nnstats[0] >= NETWORK_REFRESH_INTERVAL_SEC) {
 		$nstats = $nnstats;
 		$nnstats = read_netstats();
-
-		$fdstats = format_disk_and_netstats($dstats, $ndstats, $nstats, $nnstats);
+		$fnstats = format_netstats($nstats, $nnstats);
 	}
 	if($t - $ncstats[0] >= CPU_REFRESH_INTERVAL_SEC) {
 		$cstats = $ncstats;
@@ -498,6 +495,7 @@ while(true) {
 		$fpstats, EOL,
 		$fcstats, EOL,
 		$fdstats, EOL,
+		$fnstats, EOL,
 		$fdmcstats, $fdmcstats !== '' ? EOL : '',
 		$fprocstats, "\e[0J";
 	usleep($m * 1000000.0);
