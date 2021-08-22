@@ -44,6 +44,7 @@ const PRESSURE_REFRESH_INTERVAL_SEC = 1.0;
 const CPU_REFRESH_INTERVAL_SEC = 0.1;
 const DISK_REFRESH_INTERVAL_SEC = 1.0;
 const NETWORK_REFRESH_INTERVAL_SEC = 1.0;
+const FS_REFRESH_INTERVAL_SEC = 10.0;
 const DMCACHE_REFRESH_INTERVAL_SEC = 120.0; /* annoying audit spam in journal */
 const PROC_REFRESH_INTERVAL_SEC = 2.0;
 
@@ -74,6 +75,25 @@ function read_diskstats(): array {
 	return $stats;
 }
 
+function read_fsstats(): array {
+	$stats = [ microtime(true), [] ];
+	$blkstats = json_decode(shell_exec('lsblk -Jbo NAME,FSSIZE,FSUSED,FSAVAIL'), true);
+	foreach($blkstats['blockdevices'] as $blk) {
+		$kname = $blk['name'];
+		if($blk['fssize'] > 0) {
+			$stats[1][$kname] = [ $blk['fssize'], $blk['fsused'], $blk['fsavail'] ];
+			continue;
+		}
+		if(!isset($blk['children'])) continue;
+		$size = array_sum(array_column($blk['children'], 'fssize'));
+		if(!$size) continue;
+		$used = array_sum(array_column($blk['children'], 'fsused'));
+		$avail = array_sum(array_column($blk['children'], 'fsavail'));
+		$stats[1][$kname] = [ $size, $used, $avail ];
+	}
+	return $stats;
+}
+
 function read_netstats(): array {
 	$data = [ microtime(true), [] ];
 
@@ -101,10 +121,10 @@ function format_bytes(float $b): string {
 	return sprintf("%7.2fK", $b / 1024.);
 }
 
-function format_diskstats(array $dold, array $dnew): string {
+function format_diskstats(array $dold, array $dnew, array $fsstats): string {
 	$r = sprintf(
-		"%s%8s %8s %8s %8s%s%s",
-		CSI_HEADINGS, "DEVICE", "READ/s", "WRITE/s", "PRESSURE", CSI_RESET, EOL
+		"%s%8s %8s %8s %8s %8s %8s %8s%s%s",
+		CSI_HEADINGS, "DEVICE", "READ/s", "WRITE/s", "PRESSURE", "FS_USED%", "FS_USED", "FS_AVAIL", CSI_RESET, EOL
 	);
 	$tdiff = $dnew[0] - $dold[0];
 	foreach($dnew[1] as $kname => $f) {
@@ -112,12 +132,17 @@ function format_diskstats(array $dold, array $dnew): string {
 
 		/* XXX: blk size is always 512? */
 		$pressure = ($f[WEIGHTED_MS_IOS] - $e[WEIGHTED_MS_IOS]) / 1000.0 / $tdiff;
+		$usedpc = isset($fsstats[1][$kname]) ? 100.0 * ($fsstats[1][$kname][1] / max(1, $fsstats[1][$kname][0])) : 0.0;
 		$r .= sprintf(
-			"%8s %8s %8s %s%8.2f%s%s",
+			"%8s %8s %8s %s%8.2f%s %s%8s%s %8s %8s%s",
 			$kname,
 			format_bytes(512 * ($f[READ_SECTORS] - $e[READ_SECTORS]) / $tdiff),
 			format_bytes(512 * ($f[WRITTEN_SECTORS] - $e[WRITTEN_SECTORS]) / $tdiff),
 			$pressure >= 0.9 ? CSI_CRIT : '', $pressure, CSI_RESET,
+			$usedpc >= 95.0 ?  CSI_CRIT : ($usedpc >= 90.0 ? CSI_HIGH : ($usedpc >= 80.0 ? CSI_MED : '')),
+			isset($fsstats[1][$kname]) ? sprintf('%7.2f%%', $usedpc) : 'n/c', CSI_RESET,
+			isset($fsstats[1][$kname]) ? format_bytes($fsstats[1][$kname][1]) : 'n/c',
+			isset($fsstats[1][$kname]) ? format_bytes($fsstats[1][$kname][2]) : 'n/c',
 			EOL
 		);
 	}
@@ -448,6 +473,7 @@ $nprocstats = read_procstats();
 $vmstats = [ 0 ];
 $pstats = [ 0 ];
 $dmcstats = [ 0 ];
+$fsstats = [ 0 ];
 
 $M = max(DISK_REFRESH_INTERVAL_SEC, NETWORK_REFRESH_INTERVAL_SEC, CPU_REFRESH_INTERVAL_SEC, PROC_REFRESH_INTERVAL_SEC);
 $m = min(DISK_REFRESH_INTERVAL_SEC, NETWORK_REFRESH_INTERVAL_SEC, CPU_REFRESH_INTERVAL_SEC, PROC_REFRESH_INTERVAL_SEC);
@@ -466,9 +492,13 @@ while(true) {
 		$fpstats = format_pressurestats($pstats);
 	}
 	if($t - $ndstats[0] >= DISK_REFRESH_INTERVAL_SEC) {
+		if($t - $fsstats[0] >= FS_REFRESH_INTERVAL_SEC) {
+			/* XXX: assumes disk refresh < fs refresh */
+			$fsstats = read_fsstats();
+		}
 		$dstats = $ndstats;
 		$ndstats = read_diskstats();
-		$fdstats = format_diskstats($dstats, $ndstats);
+		$fdstats = format_diskstats($dstats, $ndstats, $fsstats);
 	}
 	if($t - $nnstats[0] >= NETWORK_REFRESH_INTERVAL_SEC) {
 		$nstats = $nnstats;
