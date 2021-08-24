@@ -340,17 +340,17 @@ function format_pressurestats(array $pstats): string {
 
 function read_dmstatus(): array {
 	$status = [ microtime(true), [] ];
-	for($i = 0;; ++$i) {
-		if(!file_exists($f = '/dev/dm-'.$i)) return $status;
-		exec('sudo -n dmsetup status '.escapeshellarg($f).' 2>/dev/null', $table, $res);
-		if($res !== 0) return $status;
-		foreach($table as &$t) {
-			$t = explode(' ', $t);
-		}
-		$status[1]['dm-'.$i] = $table;
-		unset($t);
-		unset($table);
+	exec('sh -c '.escapeshellarg('sudo -n dmsetup status /dev/dm-*').' 2>/dev/null', $table, $res);
+	if($res !== 0) return $status;
+
+	foreach($table as $t) {
+		if($t === '') continue;
+		$t = explode(' ', $t);
+		$kname = pathinfo(substr($t[0], 0, -1), PATHINFO_BASENAME);
+		$status[1][$kname] = $t;
 	}
+
+	return $status;
 }
 
 function format_dmcachestats(array $dmstatus): string {
