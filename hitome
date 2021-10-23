@@ -448,9 +448,19 @@ function format_procstats(array $pold, array $pnew): string {
 			$cpupc[$pid] = ($f[PROC_UTIME] + $f[PROC_STIME]) / $ptdiff;
 		}
 	}
-	uksort($pnew[1], function($a, $b) use($iopc, $cpupc) { return $iopc[$b] + $cpupc[$b] - $iopc[$a] - $cpupc[$a]; });
+	uksort($pnew[1], function($a, $b) use($pnew, $iopc, $cpupc) {
+		if($pnew[1][$a][PROC_STATE] === 'D' && $pnew[1][$b][PROC_STATE] !== 'D') {
+			return -1;
+		}
+		if($pnew[1][$a][PROC_STATE] !== 'D' && $pnew[1][$b][PROC_STATE] === 'D') {
+			return 1;
+		}
+		return $iopc[$b] + $cpupc[$b] - $iopc[$a] - $cpupc[$a];
+	});
 	foreach(array_slice($pnew[1], 0, PROCESS_LINES) as $fields) {
-		if($cpupc[$fields[PROC_PID]] === 0.0 && $iopc[$fields[PROC_PID]] === 0.0) break;
+		if($cpupc[$fields[PROC_PID]] === 0.0
+		   && $iopc[$fields[PROC_PID]] === 0.0
+		   && $fields[PROC_STATE] !== 'D') break;
 		$r .= sprintf(
 			"%8.0f %s%1s%s %s%3.0f%%%s %s%3.0f%%%s %-58s%s",
 			$fields[PROC_PID],
