@@ -101,8 +101,13 @@ impl<'a> fmt::Display for MemoryStats<'a> {
 		let mut swap = Bytes(0);
 		let mut zram = Bytes(0);
 
-                for line in std::fs::read_to_string("/proc/vmstat").unwrap().lines() {
-			let mut iter = line.split_whitespace();
+		let vmstat = match std::fs::read_to_string("/proc/vmstat") {
+			Ok(s) => s,
+			_ => return write!(f, "")
+		};
+
+                for line in vmstat.lines() {
+			let mut iter = line.split_ascii_whitespace();
 			let k = iter.next().unwrap();
 			/* XXX: inefficient, we don't always need the parsed
 			 * value, but it makes for more readable code */
@@ -129,9 +134,9 @@ impl<'a> fmt::Display for MemoryStats<'a> {
 		let (hdrbegin, hdrend) = headings(self.settings.smart);
 		let w = self.settings.colwidth;
 		write!(f,
-		       "{}{:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$}{}{}{:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$}{}",
+		       "{}{:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$}{}{}{:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$}{}{}",
 		       hdrbegin, "ACTIVE", "INACTIVE", "CACHED", "FREE", "DIRTY", "W_BACK", "SWAP" ,"ZRAM", hdrend, newline,
-		       active, inactive, cached, free, dirty, writeback, swap, zram, newline
+		       active, inactive, cached, free, dirty, writeback, swap, zram, newline, newline
 		)
 	}
 }
