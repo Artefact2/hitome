@@ -106,6 +106,7 @@ impl<'a> fmt::Display for NetworkStats<'a> {
         for (kname, s) in self.ifaces.iter() {
             let t = (s.1 .0 - s.0 .0).as_millis() as u64;
             /* XXX: surely there's a way to avoid the dot hell */
+            /* XXX: how do the counters wrap in /proc/net/dev? */
             let rx = Bytes(1000 * (s.1 .1 .0 .0 - s.0 .1 .0 .0) / t);
             let tx = Bytes(1000 * (s.1 .2 .0 .0 - s.0 .2 .0 .0) / t);
             write!(f, "{:>w$} {:>w$} {:>w$}{}", kname, rx, tx, newline)?

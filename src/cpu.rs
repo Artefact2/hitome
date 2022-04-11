@@ -141,12 +141,14 @@ impl<'a> fmt::Display for CpuStats<'a> {
                     _ => (1.0, 1.0, 1.0),
                 };
 
+                /* XXX: figure out if the counters ever wrap */
                 write!(
                     f,
                     "{}",
                     Threshold {
+                        /* Use a saturating sub, the iowait counters occasionally decrease(!). */
                         val: CpuUsage(
-                            ((get(cpu.1) - get(cpu.0)) as f32)
+                            (get(cpu.1).saturating_sub(get(cpu.0)) as f32)
                                 / ((cpu.1.total - cpu.0.total) as f32)
                         ),
                         med: CpuUsage(trs.0),
