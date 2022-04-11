@@ -13,6 +13,7 @@
  * limitations under the License.
  */
 
+use argh::FromArgs;
 use std::cmp::Ordering;
 use std::fmt;
 use std::fs::File;
@@ -20,11 +21,25 @@ use std::io::Read;
 
 pub const MIN_COL_WIDTH: usize = 8;
 
+#[derive(FromArgs)]
+/// A very simple, non-interactive system monitor
+pub struct CLI {
+    #[argh(option, short = 'c')]
+    /// true/false: use colour and other fancy escape sequences (defaults to guessing based on $TERM)
+    pub colour: Option<bool>,
+
+    #[argh(option, short = 'w', default = "8")]
+    /// the width of columns, in characters
+    pub column_width: usize,
+
+    #[argh(option, short = 'i', default = "2000")]
+    /// refresh interval in milliseconds
+    pub refresh_interval: u64,
+}
+
 pub struct Settings {
-    /// Terminal understands ansi colour/escape sequences?
     pub smart: bool,
     pub colwidth: usize,
-    /// Refresh interval in ms
     pub refresh: u64,
 }
 

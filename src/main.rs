@@ -49,18 +49,22 @@ fn main() {
         return;
     }
 
-    let settings = Settings {
-        smart: match std::env::var_os("TERM") {
-            Some(val) => val != "dumb",
-            None => false,
-        },
-        /* TODO: adjust based on user setting and/or tput cols */
-        colwidth: 8,
-        /* TODO: make user configurable */
-        refresh: 2000,
-    };
-    /* XXX: encapsulate in common.rs */
-    assert!(settings.colwidth >= MIN_COL_WIDTH);
+    let settings;
+    {
+        let cli: CLI = argh::from_env();
+        settings = Settings {
+            smart: cli
+                .colour
+                .unwrap_or_else(|| match std::env::var_os("TERM") {
+                    Some(val) => val != "dumb",
+                    None => false,
+                }),
+            colwidth: cli.column_width,
+            refresh: cli.refresh_interval,
+        };
+        assert!(settings.colwidth >= MIN_COL_WIDTH);
+        /* Let cli drop out of scope, it has lived its usefulness */
+    }
 
     /* Use ManuallyDrop to prevent flushing screen-clearing escape sequences, in case the program
      * crashes. This allows us to see Rust errors. */
