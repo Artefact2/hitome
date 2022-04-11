@@ -69,18 +69,19 @@ pub struct Bytes(pub u64);
 
 impl fmt::Display for Bytes {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let w = f.width().unwrap_or(8) - 1;
         if self.0 >= 10000 * 1024 * 1024 * 1024 {
             write!(
                 f,
-                "{:>7.2}T",
+                "{:>w$.2}T",
                 self.0 as f32 / (1024. * 1024. * 1024. * 1024.)
             )
         } else if self.0 >= 10000 * 1024 * 1024 {
-            write!(f, "{:>7.2}G", self.0 as f32 / (1024. * 1024. * 1024.))
+            write!(f, "{:>w$.2}G", self.0 as f32 / (1024. * 1024. * 1024.))
         } else if self.0 >= 10000 * 1024 {
-            write!(f, "{:>7.2}M", self.0 as f32 / (1024. * 1024.))
+            write!(f, "{:>w$.2}M", self.0 as f32 / (1024. * 1024.))
         } else {
-            write!(f, "{:>7.2}K", self.0 as f32 / 1024.)
+            write!(f, "{:>w$.2}K", self.0 as f32 / 1024.)
         }
     }
 }
@@ -90,7 +91,8 @@ pub struct Percentage(pub f32);
 
 impl fmt::Display for Percentage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:>7.2}%", self.0)
+        let w = f.width().unwrap_or(8) - 1;
+        write!(f, "{:>w$.2}%", self.0)
     }
 }
 
@@ -110,20 +112,22 @@ where
     T: fmt::Display + PartialOrd,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let w = f.width().unwrap_or(8);
+
         if !self.smart || self.val.partial_cmp(&self.med) == Some(Ordering::Less) {
             /* < med or dumb terminal */
-            return write!(f, "{}", self.val);
+            return write!(f, "{:w$}", self.val);
         }
 
         if self.val.partial_cmp(&self.high) == Some(Ordering::Less) {
             /* < high: we're med */
-            write!(f, "\x1B[1;93m{}\x1B[0m", self.val)
+            write!(f, "\x1B[1;93m{:w$}\x1B[0m", self.val)
         } else if self.val.partial_cmp(&self.crit) == Some(Ordering::Less) {
             /* < crit: we're high */
-            write!(f, "\x1B[1;91m{}\x1B[0m", self.val)
+            write!(f, "\x1B[1;91m{:w$}\x1B[0m", self.val)
         } else {
             /* crit */
-            write!(f, "\x1B[1;95m{}\x1B[0m", self.val)
+            write!(f, "\x1B[1;95m{:w$}\x1B[0m", self.val)
         }
     }
 }
