@@ -51,7 +51,10 @@ fn main() {
     /* XXX: encapsulate in common.rs */
     assert!(settings.colwidth >= MIN_COL_WIDTH);
 
-    let mut w = BufWriter::new(io::stdout());
+    /* Use ManuallyDrop to prevent flushing screen-clearing escape sequences, in case the program
+     * crashes. This allows us to see Rust errors. */
+    let mut w = std::mem::ManuallyDrop::new(BufWriter::new(io::stdout()));
+
     let mem = MemoryStats::new(&settings);
     let psi = PressureStats::new(&settings);
     let mut cpu = CpuStats::new(&settings);
