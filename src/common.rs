@@ -15,6 +15,8 @@
 
 use std::cmp::Ordering;
 use std::fmt;
+use std::fs::File;
+use std::io::Read;
 
 pub const MIN_COL_WIDTH: usize = 8;
 
@@ -104,4 +106,14 @@ where
             write!(f, "\x1B[1;95m{}\x1B[0m", self.val)
         }
     }
+}
+
+#[derive(PartialEq, Eq)]
+pub struct Stale(pub bool);
+
+/// Helper function similar to std::fs::read_to_string() that allows reusing the buffer
+pub fn read_to_string<P: AsRef<std::path::Path>>(p: P, s: &mut String) -> std::io::Result<usize> {
+    s.clear();
+    let mut f = File::open(p)?;
+    f.read_to_string(s)
 }

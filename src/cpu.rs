@@ -48,6 +48,7 @@ impl fmt::Display for CpuUsage {
 pub struct CpuStats<'a> {
     settings: &'a Settings,
     state: Vec<(CpuTicks, CpuTicks)>,
+    buf: String,
 }
 
 impl<'a> CpuStats<'a> {
@@ -55,19 +56,21 @@ impl<'a> CpuStats<'a> {
         let mut cpu = CpuStats {
             settings: s,
             state: Vec::new(),
+            buf: String::new(),
         };
         cpu.update();
         cpu
     }
 
     pub fn update(&mut self) {
-        let cpus = match std::fs::read_to_string("/proc/stat") {
-            Ok(s) => s,
+        match read_to_string("/proc/stat", &mut self.buf) {
+            Ok(_) => (),
             _ => return,
-        };
+        }
 
-        for (i, cpu) in cpus.lines().skip(1).enumerate() {
+        for (i, cpu) in self.buf.lines().skip(1).enumerate() {
             let mut fields = cpu.split_ascii_whitespace();
+
             if !fields.nth(0).unwrap().starts_with("cpu") {
                 return;
             }

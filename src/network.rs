@@ -27,13 +27,11 @@ struct TxBytes(Bytes);
 #[derive(Clone, Copy)]
 struct IfaceStats(Instant, RxBytes, TxBytes);
 
-#[derive(PartialEq, Eq)]
-struct Stale(bool);
-
 pub struct NetworkStats<'a> {
     settings: &'a Settings,
     /// kname (eg. enp6s0) -> ...
     ifaces: HashMap<String, (IfaceStats, IfaceStats, Stale)>,
+    buf: String,
 }
 
 impl<'a> NetworkStats<'a> {
@@ -41,22 +39,23 @@ impl<'a> NetworkStats<'a> {
         let mut ns = NetworkStats {
             settings: s,
             ifaces: HashMap::new(),
+            buf: String::new(),
         };
         ns.update();
         ns
     }
 
     pub fn update(&mut self) {
-        let devices = match std::fs::read_to_string("/proc/net/dev") {
-            Ok(s) => s,
+        match read_to_string("/proc/net/dev", &mut self.buf) {
+            Ok(_) => (),
             _ => return,
-        };
+        }
 
         for iface in self.ifaces.values_mut() {
             iface.2 = Stale(true);
         }
 
-        for dev in devices.lines().skip(2) {
+        for dev in self.buf.lines().skip(2) {
             let mut dev = dev.split_ascii_whitespace();
             let kname = dev.nth(0).unwrap().strip_suffix(':').unwrap();
 
