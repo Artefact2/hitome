@@ -16,58 +16,88 @@
 use crate::common::*;
 use std::fmt;
 
+/// 10s, 60s, 300s
+#[derive(Copy, Clone)]
+struct Pressure {
+    some: [Threshold<Percentage>; 3],
+    full: [Threshold<Percentage>; 3],
+}
+
 pub struct PressureStats<'a> {
     settings: &'a Settings,
+    cpu: Pressure,
+    memory: Pressure,
+    io: Pressure,
+    buf: String,
 }
 
 impl<'a> PressureStats<'a> {
     pub fn new(s: &'a Settings) -> PressureStats {
-        PressureStats { settings: s }
+        let z = Threshold {
+            val: Percentage(0.0),
+            med: Percentage(1.0),
+            high: Percentage(5.0),
+            crit: Percentage(10.0),
+            /* XXX: update this in fmt()? */
+            smart: s.smart,
+        };
+        let z = Pressure {
+            some: [z; 3],
+            full: [z; 3],
+        };
+        PressureStats {
+            settings: s,
+            cpu: z,
+            memory: z,
+            io: z,
+            buf: String::new(),
+        }
+    }
+
+    fn update_cat(pa: &str, buf: &mut String, pr: &mut Pressure) {
+        match read_to_string(pa, buf) {
+            Ok(_) => (),
+            _ => return,
+        }
+
+        match read_to_string(pa, buf) {
+            Ok(_) => (),
+            _ => return,
+        }
+
+        for line in buf.lines() {
+            let mut elems = line.split_ascii_whitespace();
+            let pr = match elems.nth(0) {
+                Some("some") => &mut pr.some,
+                Some("full") => &mut pr.full,
+                _ => continue,
+            };
+
+            for el in elems {
+                let (idx, p) = match el.rsplit_once('=') {
+                    Some(("avg10", p)) => (0, p),
+                    Some(("avg60", p)) => (1, p),
+                    Some(("avg300", p)) => (2, p),
+                    _ => continue,
+                };
+                pr[idx].val.0 = p.parse::<f32>().unwrap();
+            }
+        }
+    }
+
+    pub fn update(&mut self) {
+        PressureStats::update_cat("/proc/pressure/cpu", &mut self.buf, &mut self.cpu);
+        PressureStats::update_cat("/proc/pressure/memory", &mut self.buf, &mut self.memory);
+        PressureStats::update_cat("/proc/pressure/io", &mut self.buf, &mut self.io);
     }
 }
 
 impl<'a> fmt::Display for PressureStats<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut cells = [Threshold {
-            val: Percentage(0.0),
-            med: Percentage(1.0),
-            high: Percentage(5.0),
-            crit: Percentage(10.0),
-            smart: self.settings.smart,
-        }; 18];
-
-        [
-            /* XXX: pass through mutable slices? */
-            ("cpu", 0, 3),
-            ("memory", 6, 9),
-            ("io", 12, 15),
-        ]
-        .map(|s| {
-            let mut p = std::path::PathBuf::from("/proc/pressure");
-            p.push(s.0);
-            let pressure = match std::fs::read_to_string(p) {
-                Ok(a) => a,
-                _ => return,
-            };
-            for line in pressure.lines() {
-                let mut elems = line.split_ascii_whitespace();
-                let idx = match elems.nth(0) {
-                    Some("some") => s.1,
-                    Some("full") => s.2,
-                    _ => continue,
-                };
-
-                for el in elems {
-                    let (idx, p) = match el.rsplit_once('=') {
-                        Some(("avg10", p)) => (idx, p),
-                        Some(("avg60", p)) => (idx + 1, p),
-                        Some(("avg300", p)) => (idx + 2, p),
-                        _ => continue,
-                    };
-                    cells[idx].val.0 = p.parse::<f32>().unwrap();
-                }
-            }
-        });
+        /* XXX: this isn't very reliable */
+        if self.buf.len() == 0 {
+            return write!(f, "");
+        }
 
         let w = self.settings.colwidth;
         let newline = newline(self.settings.smart);
@@ -87,17 +117,17 @@ impl<'a> fmt::Display for PressureStats<'a> {
             newline
         )?;
 
-        for el in [("avg10", 0), ("avg60", 1), ("avg300", 2)] {
+        for (label, i) in [("avg10", 0), ("avg60", 1), ("avg300", 2)] {
             write!(
                 f,
                 "{:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$}{}",
-                el.0,
-                cells[el.1],
-                cells[el.1 + 3],
-                cells[el.1 + 6],
-                cells[el.1 + 9],
-                cells[el.1 + 12],
-                cells[el.1 + 15],
+                label,
+                self.cpu.some[i],
+                self.cpu.full[i],
+                self.memory.some[i],
+                self.memory.full[i],
+                self.io.some[i],
+                self.io.full[i],
                 newline
             )?;
         }
