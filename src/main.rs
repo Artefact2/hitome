@@ -13,8 +13,10 @@
  * limitations under the License.
  */
 
+use crate::blockdev::BlockDeviceStats;
 use crate::common::*;
 use crate::cpu::CpuStats;
+use crate::fs::FilesystemStats;
 use crate::mem::MemoryStats;
 use crate::network::NetworkStats;
 use crate::pressure::PressureStats;
@@ -22,11 +24,20 @@ use std::io::{self, BufWriter, Write};
 use std::thread;
 use std::time::{Duration, Instant};
 
+mod blockdev;
 mod common;
 mod cpu;
+mod fs;
 mod mem;
 mod network;
 mod pressure;
+
+/// A function-like macro that .update()s all of its arguments
+macro_rules! update {
+    ($( $x:expr ),*) => {
+        $($x.update();)*
+    }
+}
 
 fn main() {
     if !cfg!(target_os = "linux") {
@@ -59,6 +70,8 @@ fn main() {
     let mut psi = PressureStats::new(&settings);
     let mut cpu = CpuStats::new(&settings);
     let mut net = NetworkStats::new(&settings);
+    let mut bdev = BlockDeviceStats::new(&settings);
+    let mut fs = FilesystemStats::new(&settings);
 
     println!("Hitome will now wait a while to collect statistics...");
     thread::sleep(Duration::from_millis(settings.refresh));
@@ -73,14 +86,10 @@ fn main() {
             writeln!(w, "----------").unwrap();
         }
 
-        /* XXX: refactor this with an update trait + map()? */
-        mem.update();
-        psi.update();
-        cpu.update();
-        net.update();
+        update!(mem, psi, cpu, net, bdev, fs);
 
         /* XXX: merge cpu/net if term has enough cols */
-        write!(w, "{}{}{}{}", mem, psi, cpu, net).unwrap();
+        write!(w, "{}{}{}{}{}{}", mem, psi, cpu, net, bdev, fs).unwrap();
 
         if settings.smart {
             /* Erase from cursor to end */

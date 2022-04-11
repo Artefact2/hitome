@@ -51,6 +51,8 @@ impl<'a> StatBlock<'a> for NetworkStats<'a> {
             _ => return,
         }
 
+        let t = Instant::now();
+
         for iface in self.ifaces.values_mut() {
             iface.2 = Stale(true);
         }
@@ -67,7 +69,7 @@ impl<'a> StatBlock<'a> for NetworkStats<'a> {
             let mut ent = match self.ifaces.get_mut(kname) {
                 Some(v) => v,
                 _ => {
-                    let z = IfaceStats(Instant::now(), RxBytes(Bytes(0)), TxBytes(Bytes(0)));
+                    let z = IfaceStats(t, RxBytes(Bytes(0)), TxBytes(Bytes(0)));
                     self.ifaces
                         .insert(String::from(kname), (z, z, Stale(false)));
                     self.ifaces.get_mut(kname).unwrap()
@@ -76,7 +78,7 @@ impl<'a> StatBlock<'a> for NetworkStats<'a> {
 
             ent.0 = ent.1;
             ent.1 = IfaceStats(
-                Instant::now(),
+                t,
                 RxBytes(Bytes(dev.nth(0).unwrap().parse::<u64>().unwrap())),
                 TxBytes(Bytes(dev.nth(7).unwrap().parse::<u64>().unwrap())),
             );
@@ -108,7 +110,7 @@ impl<'a> fmt::Display for NetworkStats<'a> {
             /* XXX: how do the counters wrap in /proc/net/dev? */
             let rx = Bytes(1000 * (s.1 .1 .0 .0 - s.0 .1 .0 .0) / t);
             let tx = Bytes(1000 * (s.1 .2 .0 .0 - s.0 .2 .0 .0) / t);
-            write!(f, "{:>w$} {:>w$} {:>w$}{}", kname, rx, tx, newline)?
+            write!(f, "{:>w$.w$} {:>w$} {:>w$}{}", kname, rx, tx, newline)?
         }
 
         write!(f, "{}", newline)
