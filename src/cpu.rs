@@ -51,8 +51,8 @@ pub struct CpuStats<'a> {
     buf: String,
 }
 
-impl<'a> CpuStats<'a> {
-    pub fn new(s: &'a Settings) -> CpuStats {
+impl<'a> StatBlock<'a> for CpuStats<'a> {
+    fn new(s: &'a Settings) -> CpuStats {
         let mut cpu = CpuStats {
             settings: s,
             state: Vec::new(),
@@ -62,7 +62,7 @@ impl<'a> CpuStats<'a> {
         cpu
     }
 
-    pub fn update(&mut self) {
+    fn update(&mut self) {
         match read_to_string("/proc/stat", &mut self.buf) {
             Ok(_) => (),
             _ => return,

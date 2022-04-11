@@ -34,8 +34,8 @@ pub struct NetworkStats<'a> {
     buf: String,
 }
 
-impl<'a> NetworkStats<'a> {
-    pub fn new(s: &'a Settings) -> NetworkStats {
+impl<'a> StatBlock<'a> for NetworkStats<'a> {
+    fn new(s: &'a Settings) -> NetworkStats {
         let mut ns = NetworkStats {
             settings: s,
             ifaces: HashMap::new(),
@@ -45,7 +45,7 @@ impl<'a> NetworkStats<'a> {
         ns
     }
 
-    pub fn update(&mut self) {
+    fn update(&mut self) {
         match read_to_string("/proc/net/dev", &mut self.buf) {
             Ok(_) => (),
             _ => return,

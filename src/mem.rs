@@ -35,8 +35,8 @@ pub struct MemoryStats<'a> {
     buf: String,
 }
 
-impl<'a> MemoryStats<'a> {
-    pub fn new(s: &'a Settings) -> MemoryStats {
+impl<'a> StatBlock<'a> for MemoryStats<'a> {
+    fn new(s: &'a Settings) -> MemoryStats {
         let z = Threshold {
             val: Bytes(0),
             med: Bytes(1),
@@ -61,7 +61,7 @@ impl<'a> MemoryStats<'a> {
         }
     }
 
-    pub fn update(&mut self) {
+    fn update(&mut self) {
         let s = &mut self.state;
         s.swap.0 = 0;
         s.zram.0 = 0;

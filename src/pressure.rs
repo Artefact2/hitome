@@ -32,28 +32,6 @@ pub struct PressureStats<'a> {
 }
 
 impl<'a> PressureStats<'a> {
-    pub fn new(s: &'a Settings) -> PressureStats {
-        let z = Threshold {
-            val: Percentage(0.0),
-            med: Percentage(1.0),
-            high: Percentage(5.0),
-            crit: Percentage(10.0),
-            /* XXX: update this in fmt()? */
-            smart: s.smart,
-        };
-        let z = Pressure {
-            some: [z; 3],
-            full: [z; 3],
-        };
-        PressureStats {
-            settings: s,
-            cpu: z,
-            memory: z,
-            io: z,
-            buf: String::new(),
-        }
-    }
-
     fn update_cat(pa: &str, buf: &mut String, pr: &mut Pressure) {
         match read_to_string(pa, buf) {
             Ok(_) => (),
@@ -84,8 +62,32 @@ impl<'a> PressureStats<'a> {
             }
         }
     }
+}
 
-    pub fn update(&mut self) {
+impl<'a> StatBlock<'a> for PressureStats<'a> {
+    fn new(s: &'a Settings) -> PressureStats {
+        let z = Threshold {
+            val: Percentage(0.0),
+            med: Percentage(1.0),
+            high: Percentage(5.0),
+            crit: Percentage(10.0),
+            /* XXX: update this in fmt()? */
+            smart: s.smart,
+        };
+        let z = Pressure {
+            some: [z; 3],
+            full: [z; 3],
+        };
+        PressureStats {
+            settings: s,
+            cpu: z,
+            memory: z,
+            io: z,
+            buf: String::new(),
+        }
+    }
+
+    fn update(&mut self) {
         PressureStats::update_cat("/proc/pressure/cpu", &mut self.buf, &mut self.cpu);
         PressureStats::update_cat("/proc/pressure/memory", &mut self.buf, &mut self.memory);
         PressureStats::update_cat("/proc/pressure/io", &mut self.buf, &mut self.io);

@@ -44,6 +44,11 @@ pub fn headings(smart: bool) -> (&'static str, &'static str) {
     }
 }
 
+pub trait StatBlock<'a> {
+    fn new(s: &'a Settings) -> Self;
+    fn update(&mut self);
+}
+
 #[derive(PartialEq, PartialOrd, Clone, Copy)]
 pub struct Bytes(pub u64);
 
