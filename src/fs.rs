@@ -135,7 +135,15 @@ impl<'a> fmt::Display for FilesystemStats<'a> {
                 } else {
                     k.rsplit_once('/').unwrap().1
                 },
-                Percentage(100.0 * ((v.0.size.0 - v.0.avail.0) as f32) / (v.0.size.0 as f32)),
+                Threshold {
+                    val: Percentage(
+                        100.0 * ((v.0.size.0 - v.0.avail.0) as f32) / (v.0.size.0 as f32)
+                    ),
+                    med: Percentage(80.0),
+                    high: Percentage(90.0),
+                    crit: Percentage(95.0),
+                    smart: self.settings.smart,
+                },
                 Bytes(v.0.size.0 - v.0.avail.0),
                 v.0.avail,
                 newline
