@@ -16,6 +16,7 @@
 use crate::common::*;
 use crate::cpu::CpuStats;
 use crate::mem::MemoryStats;
+use crate::network::NetworkStats;
 use crate::pressure::PressureStats;
 use std::io::{self, BufWriter, Write};
 use std::thread;
@@ -24,6 +25,7 @@ use std::time::{Duration, Instant};
 mod common;
 mod cpu;
 mod mem;
+mod network;
 mod pressure;
 
 fn main() {
@@ -53,6 +55,7 @@ fn main() {
     let mem = MemoryStats::new(&settings);
     let psi = PressureStats::new(&settings);
     let mut cpu = CpuStats::new(&settings);
+    let mut net = NetworkStats::new(&settings);
 
     println!("Hitome will now wait a while to collect statistics...");
     thread::sleep(Duration::from_millis(settings.refresh));
@@ -68,7 +71,10 @@ fn main() {
         }
 
         cpu.update();
-        write!(w, "{}{}{}", mem, psi, cpu).unwrap();
+        net.update();
+
+        /* XXX: merge cpu/net if term has enough cols */
+        write!(w, "{}{}{}{}", mem, psi, cpu, net).unwrap();
 
         if settings.smart {
             /* Erase from cursor to end */
