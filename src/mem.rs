@@ -17,53 +17,58 @@ use super::common::*;
 use page_size;
 use std::fmt;
 
+struct Memory {
+    active: Bytes,
+    inactive: Bytes,
+    cached: Bytes,
+    free: Bytes,
+    dirty: Threshold<Bytes>,
+    writeback: Threshold<Bytes>,
+    swap: Bytes,
+    zram: Bytes,
+}
+
 pub struct MemoryStats<'a> {
     settings: &'a Settings,
     pagesize: u64,
+    state: Memory,
+    buf: String,
 }
 
 impl<'a> MemoryStats<'a> {
     pub fn new(s: &'a Settings) -> MemoryStats {
-        MemoryStats {
-            settings: s,
-            pagesize: page_size::get() as u64,
-        }
-    }
-}
-
-impl<'a> fmt::Display for MemoryStats<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut active = Bytes(0);
-        let mut inactive = Bytes(0);
-        let mut cached = Bytes(0);
-        let mut free = Bytes(0);
-        let mut dirty = Threshold {
-            val: Bytes(0),
-            med: Bytes(0),
-            high: Bytes(0),
-            crit: Bytes(0),
-            smart: self.settings.smart,
-        };
-        let mut writeback = Threshold {
+        let z = Threshold {
             val: Bytes(0),
             med: Bytes(1),
             high: Bytes(1),
             crit: Bytes(1),
-            smart: self.settings.smart,
+            smart: s.smart,
         };
+        MemoryStats {
+            settings: s,
+            pagesize: page_size::get() as u64,
+            state: Memory {
+                active: Bytes(0),
+                inactive: Bytes(0),
+                cached: Bytes(0),
+                free: Bytes(0),
+                dirty: z,
+                writeback: z,
+                swap: Bytes(0),
+                zram: Bytes(0),
+            },
+            buf: String::new(),
+        }
+    }
 
-        /* XXX: parse /proc/swaps and /sys/block/zramX/mm_stat */
-        let mut swap = Bytes(0);
-        let mut zram = Bytes(0);
+    pub fn update(&mut self) {
+        let s = &mut self.state;
+        s.swap.0 = 0;
+        s.zram.0 = 0;
 
-        let vmstat = match std::fs::read_to_string("/proc/vmstat") {
-            Ok(s) => s,
-            _ => return write!(f, ""),
-        };
-
-        if let Ok(swaps) = std::fs::read_to_string("/proc/swaps") {
-            for line in swaps.lines().skip(1) {
-                swap.0 += line
+        if let Ok(_) = read_to_string("/proc/swaps", &mut self.buf) {
+            for line in self.buf.lines().skip(1) {
+                s.swap.0 += line
                     .split_ascii_whitespace()
                     .nth(3)
                     .unwrap()
@@ -89,9 +94,10 @@ impl<'a> fmt::Display for MemoryStats<'a> {
 
             let mut mm = bdev.path();
             mm.push("mm_stat");
-            if let Ok(mm) = std::fs::read_to_string(mm) {
+            if let Ok(_) = read_to_string(mm, &mut self.buf) {
                 /* https://docs.kernel.org/admin-guide/blockdev/zram.html */
-                zram.0 += mm
+                s.zram.0 += self
+                    .buf
                     .split_ascii_whitespace()
                     .nth(2)
                     .unwrap()
@@ -100,50 +106,64 @@ impl<'a> fmt::Display for MemoryStats<'a> {
             }
         }
 
-        for line in vmstat.lines() {
+        match read_to_string("/proc/vmstat", &mut self.buf) {
+            Ok(_) => (),
+            _ => return,
+        };
+
+        s.active.0 = 0;
+        s.inactive.0 = 0;
+        s.cached.0 = 0;
+
+        for line in self.buf.lines() {
             let mut iter = line.split_ascii_whitespace();
             let k = iter.next().unwrap();
             /* XXX: inefficient, we don't always need the parsed
              * value, but it makes for more readable code */
             let v = iter.next().unwrap().parse::<u64>().unwrap() * self.pagesize;
             match k {
-                "nr_active_anon" => active.0 += v,
+                "nr_active_anon" => s.active.0 += v,
                 "nr_active_file" => {
-                    active.0 += v;
-                    cached.0 += v
+                    s.active.0 += v;
+                    s.cached.0 += v
                 }
-                "nr_inactive_anon" => inactive.0 += v,
+                "nr_inactive_anon" => s.inactive.0 += v,
                 "nr_inactive_file" => {
-                    inactive.0 += v;
-                    cached.0 += v
+                    s.inactive.0 += v;
+                    s.cached.0 += v
                 }
-                "nr_slab_unreclaimable" => cached.0 += v,
-                "nr_slab_reclaimable" => cached.0 += v,
-                "nr_kernel_misc_reclaimable" => cached.0 += v,
+                "nr_slab_unreclaimable" => s.cached.0 += v,
+                "nr_slab_reclaimable" => s.cached.0 += v,
+                "nr_kernel_misc_reclaimable" => s.cached.0 += v,
                 "nr_swapcached" => {
-                    cached.0 += v;
+                    s.cached.0 += v;
                     /* Swap is already filled, should be ok to substract without wrapping around */
-                    swap.0 -= v;
+                    s.swap.0 -= v;
                 }
-                "nr_free_pages" => free.0 = v,
-                "nr_dirty" => dirty.val.0 = v,
-                "nr_dirty_threshold" => dirty.crit.0 = v,
+                "nr_free_pages" => s.free.0 = v,
+                "nr_dirty" => s.dirty.val.0 = v,
+                "nr_dirty_threshold" => s.dirty.crit.0 = v,
                 "nr_dirty_background_threshold" => {
-                    dirty.med.0 = v;
-                    dirty.high.0 = v
+                    s.dirty.med.0 = v;
+                    s.dirty.high.0 = v
                 }
-                "nr_writeback" => writeback.val.0 = v,
+                "nr_writeback" => s.writeback.val.0 = v,
                 _ => continue,
             };
         }
+    }
+}
 
+impl<'a> fmt::Display for MemoryStats<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let newline = newline(self.settings.smart);
         let (hdrbegin, hdrend) = headings(self.settings.smart);
         let w = self.settings.colwidth;
+        let s = &self.state;
         write!(f,
                "{}{:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$}{}{}{:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$}{}{}",
                hdrbegin, "ACTIVE", "INACTIVE", "CACHED", "FREE", "DIRTY", "W_BACK", "SWAP" ,"ZRAM", hdrend, newline,
-               active, inactive, cached, free, dirty, writeback, swap, zram, newline, newline
+               s.active, s.inactive, s.cached, s.free, s.dirty, s.writeback, s.swap, s.zram, newline, newline
         )
     }
 }

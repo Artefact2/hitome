@@ -55,8 +55,8 @@ fn main() {
      * crashes. This allows us to see Rust errors. */
     let mut w = std::mem::ManuallyDrop::new(BufWriter::new(io::stdout()));
 
-    let mem = MemoryStats::new(&settings);
-    let psi = PressureStats::new(&settings);
+    let mut mem = MemoryStats::new(&settings);
+    let mut psi = PressureStats::new(&settings);
     let mut cpu = CpuStats::new(&settings);
     let mut net = NetworkStats::new(&settings);
 
@@ -73,6 +73,9 @@ fn main() {
             writeln!(w, "----------").unwrap();
         }
 
+        /* XXX: refactor this with an update trait + map()? */
+        mem.update();
+        psi.update();
         cpu.update();
         net.update();
 
