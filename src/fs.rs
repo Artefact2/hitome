@@ -124,7 +124,7 @@ impl<'a> StatBlock<'a> for FilesystemStats<'a> {
 impl<'a> fmt::Display for FilesystemStats<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.filesystems.is_empty() {
-            return write!(f, "");
+            return Ok(());
         }
 
         let newline = newline(self.settings.smart);

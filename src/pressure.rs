@@ -98,7 +98,7 @@ impl<'a> fmt::Display for PressureStats<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         /* XXX: this isn't very reliable */
         if self.buf.len() == 0 {
-            return write!(f, "");
+            return Ok(());
         }
 
         let w = self.settings.colwidth;

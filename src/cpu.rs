@@ -113,7 +113,7 @@ impl<'a> StatBlock<'a> for CpuStats<'a> {
 impl<'a> fmt::Display for CpuStats<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.state.len() == 0 {
-            return write!(f, "");
+            return Ok(());
         }
 
         let newline = newline(self.settings.smart);

@@ -143,6 +143,8 @@ pub fn read_to_string<P: AsRef<std::path::Path>>(p: P, s: &mut String) -> std::i
     f.read_to_string(s)
 }
 
+/// Merge two StatBlocks side by side, if the combined result fits in 80 columns or fewer. For each
+/// block, assumes that all lines print the same number of visible characters.
 pub struct MergedStatBlock<'a, T, U>
 where
     T: StatBlock<'a> + Display,
@@ -171,6 +173,7 @@ where
             settings: s,
         }
     }
+
     fn update(&mut self) {
         use std::fmt::Write;
 
@@ -180,7 +183,7 @@ where
 
         self.u.update();
         self.ubuf.clear();
-        write!(self.ubuf, "{}", self.u).unwrap();
+        write!(self.ubuf, "{}", self.u).unwrap()
     }
 }
 
@@ -190,6 +193,71 @@ where
     U: StatBlock<'a> + Display,
 {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        write!(f, "{}{}", self.tbuf, self.ubuf)
+        if self.tbuf.is_empty() {
+            return write!(f, "{}", self.ubuf);
+        }
+        if self.ubuf.is_empty() {
+            return write!(f, "{}", self.tbuf);
+        }
+
+        let widths = [&self.tbuf, &self.ubuf]
+            .map(|s| ascii_term_printable_chars_len(s.lines().nth(0).unwrap()));
+        /* Round first width to line up columns */
+        let wfirst =
+            widths[0] + self.settings.colwidth - (widths[0] % (self.settings.colwidth + 1));
+        if wfirst + 1 + widths[1] > 80 {
+            /* Too wide, fall back to printing vertically */
+            return write!(f, "{}{}", self.tbuf, self.ubuf);
+        }
+
+        let newline = newline(self.settings.smart);
+        let mut iters = (self.tbuf.lines(), self.ubuf.lines());
+        loop {
+            match (iters.0.next(), iters.1.next()) {
+                (Some(a), Some(b)) => write!(
+                    f,
+                    "{:len$} {}{}",
+                    a,
+                    b,
+                    newline,
+                    len = wfirst + a.len() - ascii_term_printable_chars_len(a),
+                )?,
+                (None, Some(b)) => write!(f, "{:wfirst$} {}{}", "", b, newline)?,
+                (Some(a), None) => write!(f, "{}{}", a, newline)?,
+                _ => break,
+            }
+        }
+        Ok(())
     }
+}
+
+/// Length of a string, minus unprintable characters (eg terminal escape sequences)
+/// Will panic if fed non-ASCII stuff
+/// XXX: probably can be rewritten much more simply
+fn ascii_term_printable_chars_len(s: &str) -> usize {
+    let mut i = 0;
+    let mut iter = s.chars();
+    while let Some(c) = iter.next() {
+        if !c.is_ascii() {
+            unimplemented!();
+        }
+
+        /* https://en.wikipedia.org/wiki/ANSI_escape_code#Description */
+        if c == '\x1B' {
+            let c = iter.next().unwrap();
+            if c == '[' {
+                /* Gobble up ESC [ (...) 0x40..=0x7E */
+                while let Some(c) = iter.next() {
+                    if c >= '\x40' && c <= '\x7E' {
+                        break;
+                    }
+                }
+            } else {
+                unimplemented!();
+            }
+        } else if !c.is_ascii_control() {
+            i += 1
+        }
+    }
+    i
 }

@@ -108,7 +108,7 @@ impl<'a> StatBlock<'a> for BlockDeviceStats<'a> {
 impl<'a> fmt::Display for BlockDeviceStats<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.devices.is_empty() {
-            return write!(f, "");
+            return Ok(());
         }
 
         let newline = newline(self.settings.smart);

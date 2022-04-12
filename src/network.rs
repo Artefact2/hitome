@@ -92,7 +92,7 @@ impl<'a> StatBlock<'a> for NetworkStats<'a> {
 impl<'a> fmt::Display for NetworkStats<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.ifaces.is_empty() {
-            return write!(f, "");
+            return Ok(());
         }
 
         let newline = newline(self.settings.smart);
