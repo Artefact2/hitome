@@ -205,6 +205,8 @@ where
         /* Round first width to line up columns */
         let wfirst =
             widths[0] + self.settings.colwidth - (widths[0] % (self.settings.colwidth + 1));
+
+        /* XXX: make the 80 col limit user configurable and/or guess based on terminal */
         if wfirst + 1 + widths[1] > 80 {
             /* Too wide, fall back to printing vertically */
             return write!(f, "{}{}", self.tbuf, self.ubuf);

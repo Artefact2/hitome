@@ -20,6 +20,7 @@ use crate::fs::FilesystemStats;
 use crate::mem::MemoryStats;
 use crate::network::NetworkStats;
 use crate::pressure::PressureStats;
+use crate::tasks::TaskStats;
 use std::io::{self, BufWriter, Write};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -31,6 +32,7 @@ mod fs;
 mod mem;
 mod network;
 mod pressure;
+mod tasks;
 
 /// A function-like macro that .update()s all of its arguments
 macro_rules! update {
@@ -74,6 +76,7 @@ fn main() {
     let mut psi = PressureStats::new(&settings);
     let mut cpu_net = MergedStatBlock::<CpuStats, NetworkStats>::new(&settings);
     let mut bdev_fs = MergedStatBlock::<BlockDeviceStats, FilesystemStats>::new(&settings);
+    let mut tasks = TaskStats::new(&settings);
 
     println!("Hitome will now wait a while to collect statistics...");
     thread::sleep(Duration::from_millis(settings.refresh));
@@ -88,8 +91,8 @@ fn main() {
             writeln!(w, "----------").unwrap();
         }
 
-        update!(mem, psi, cpu_net, bdev_fs);
-        write!(w, "{}{}{}{}", mem, psi, cpu_net, bdev_fs).unwrap();
+        update!(mem, psi, cpu_net, bdev_fs, tasks);
+        write!(w, "{}{}{}{}{}", mem, psi, cpu_net, bdev_fs, tasks).unwrap();
 
         if settings.smart {
             /* Erase from cursor to end */
