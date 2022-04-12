@@ -25,6 +25,7 @@ struct FSUsage {
 
 pub struct FilesystemStats<'a> {
     settings: &'a Settings,
+    /* XXX: use PathBuf as key? OsString? otoh we don't really need portability */
     filesystems: BTreeMap<String, (FSUsage, CString, Stale)>,
     buf: String,
 }
@@ -46,6 +47,7 @@ impl<'a> StatBlock<'a> for FilesystemStats<'a> {
 
         /* XXX: keep instance in self and blank it when we're done? don't know how to work around
          * lifetime stuff */
+        /* XXX: use PathBuf? OsString? */
         let mut seen: HashSet<&str> = HashSet::new();
 
         for v in self.filesystems.values_mut() {
@@ -65,6 +67,14 @@ impl<'a> StatBlock<'a> for FilesystemStats<'a> {
                 /* Not interested in these kind of mounts */
                 continue;
             }
+
+            /* XXX: find a way to canonicalize bdev: for instance /dev/disk/by-label/foo and
+             * /dev/disk/by-id/bar can refer to the same block device */
+            //let canon_bdev = std::fs::canonicalize(bdev).unwrap();
+            //let canon_bdev_lossy = canon_bdev.to_string_lossy().into_owned();
+            //let bdev = canon_bdev_lossy.as_str();
+            //           ^ value needs to live as long as seen
+            /* maybe maintain canon: HashMap<String, (String, Stale)> in self? */
 
             if seen.contains(bdev) {
                 /* Another fs on the same block device, could be eg bind mount or btrfs subvolume...

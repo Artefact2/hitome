@@ -72,10 +72,8 @@ fn main() {
 
     let mut mem = MemoryStats::new(&settings);
     let mut psi = PressureStats::new(&settings);
-    let mut cpu = CpuStats::new(&settings);
-    let mut net = NetworkStats::new(&settings);
-    let mut bdev = BlockDeviceStats::new(&settings);
-    let mut fs = FilesystemStats::new(&settings);
+    let mut cpu_net = MergedStatBlock::<CpuStats, NetworkStats>::new(&settings);
+    let mut bdev_fs = MergedStatBlock::<BlockDeviceStats, FilesystemStats>::new(&settings);
 
     println!("Hitome will now wait a while to collect statistics...");
     thread::sleep(Duration::from_millis(settings.refresh));
@@ -90,10 +88,8 @@ fn main() {
             writeln!(w, "----------").unwrap();
         }
 
-        update!(mem, psi, cpu, net, bdev, fs);
-
-        /* XXX: merge cpu/net if term has enough cols */
-        write!(w, "{}{}{}{}{}{}", mem, psi, cpu, net, bdev, fs).unwrap();
+        update!(mem, psi, cpu_net, bdev_fs);
+        write!(w, "{}{}{}{}", mem, psi, cpu_net, bdev_fs).unwrap();
 
         if settings.smart {
             /* Erase from cursor to end */

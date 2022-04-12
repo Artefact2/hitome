@@ -15,7 +15,7 @@
 
 use argh::FromArgs;
 use std::cmp::Ordering;
-use std::fmt;
+use std::fmt::{Display, Formatter, Result};
 use std::fs::File;
 use std::io::Read;
 
@@ -67,8 +67,8 @@ pub trait StatBlock<'a> {
 #[derive(PartialEq, PartialOrd, Clone, Copy)]
 pub struct Bytes(pub u64);
 
-impl fmt::Display for Bytes {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Display for Bytes {
+    fn fmt(&self, f: &mut Formatter) -> Result {
         let w = f.width().unwrap_or(8) - 1;
         if self.0 >= 10000 * 1024 * 1024 * 1024 {
             write!(
@@ -89,8 +89,8 @@ impl fmt::Display for Bytes {
 #[derive(PartialEq, PartialOrd, Clone, Copy)]
 pub struct Percentage(pub f32);
 
-impl fmt::Display for Percentage {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Display for Percentage {
+    fn fmt(&self, f: &mut Formatter) -> Result {
         let w = f.width().unwrap_or(8) - 1;
         write!(f, "{:>w$.2}%", self.0)
     }
@@ -107,11 +107,11 @@ pub struct Threshold<T> {
     pub smart: bool,
 }
 
-impl<T> fmt::Display for Threshold<T>
+impl<T> Display for Threshold<T>
 where
-    T: fmt::Display + PartialOrd,
+    T: Display + PartialOrd,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> Result {
         let w = f.width().unwrap_or(8);
 
         if !self.smart || self.val.partial_cmp(&self.med) == Some(Ordering::Less) {
@@ -136,8 +136,60 @@ where
 pub struct Stale(pub bool);
 
 /// Helper function similar to std::fs::read_to_string() that allows reusing the buffer
+/* XXX: don't panic on invalid utf8 */
 pub fn read_to_string<P: AsRef<std::path::Path>>(p: P, s: &mut String) -> std::io::Result<usize> {
     s.clear();
     let mut f = File::open(p)?;
     f.read_to_string(s)
+}
+
+pub struct MergedStatBlock<'a, T, U>
+where
+    T: StatBlock<'a> + Display,
+    U: StatBlock<'a> + Display,
+{
+    t: T,
+    u: U,
+    tbuf: String,
+    ubuf: String,
+    /* We need to know colwidth when joining */
+    settings: &'a Settings,
+}
+
+/* XXX: is there a way to not repeat where clauses in every impl? */
+impl<'a, T, U> StatBlock<'a> for MergedStatBlock<'a, T, U>
+where
+    T: StatBlock<'a> + Display,
+    U: StatBlock<'a> + Display,
+{
+    fn new(s: &'a Settings) -> MergedStatBlock<T, U> {
+        MergedStatBlock {
+            t: T::new(s),
+            u: U::new(s),
+            tbuf: String::new(),
+            ubuf: String::new(),
+            settings: s,
+        }
+    }
+    fn update(&mut self) {
+        use std::fmt::Write;
+
+        self.t.update();
+        self.tbuf.clear();
+        write!(self.tbuf, "{}", self.t).unwrap();
+
+        self.u.update();
+        self.ubuf.clear();
+        write!(self.ubuf, "{}", self.u).unwrap();
+    }
+}
+
+impl<'a, T, U> Display for MergedStatBlock<'a, T, U>
+where
+    T: StatBlock<'a> + Display,
+    U: StatBlock<'a> + Display,
+{
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        write!(f, "{}{}", self.tbuf, self.ubuf)
+    }
 }
