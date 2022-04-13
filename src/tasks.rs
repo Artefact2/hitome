@@ -29,7 +29,7 @@ struct PID(u32);
 struct Jiffies(u64, Instant);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum State {
+enum TaskState {
     Sleeping,
     Running,
     Uninterruptible,
@@ -39,16 +39,16 @@ enum State {
     Unknown,
 }
 
-impl<'a> fmt::Display for MaybeSmart<'a, State> {
+impl<'a> fmt::Display for MaybeSmart<'a, TaskState> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let letter = match self.0 {
-            State::Sleeping => 'S',
-            State::Running => 'R',
-            State::Uninterruptible => 'D',
-            State::Zombie => 'Z',
-            State::Traced => 'T',
-            State::Idle => 'I',
-            State::Unknown => '?',
+            TaskState::Sleeping => 'S',
+            TaskState::Running => 'R',
+            TaskState::Uninterruptible => 'D',
+            TaskState::Zombie => 'Z',
+            TaskState::Traced => 'T',
+            TaskState::Idle => 'I',
+            TaskState::Unknown => '?',
         };
 
         let w = f.width().unwrap_or(1);
@@ -58,8 +58,8 @@ impl<'a> fmt::Display for MaybeSmart<'a, State> {
         }
 
         match self.0 {
-            State::Running => write!(f, "\x1B[1;93m{:>w$}\x1B[0m", letter),
-            State::Uninterruptible => write!(f, "\x1B[1;95m{:>w$}\x1B[0m", letter),
+            TaskState::Running => write!(f, "\x1B[1;93m{:>w$}\x1B[0m", letter),
+            TaskState::Uninterruptible => write!(f, "\x1B[1;95m{:>w$}\x1B[0m", letter),
             _ => write!(f, "{:>w$}", letter),
         }
     }
@@ -76,7 +76,7 @@ impl fmt::Display for CPUPercentage {
 }
 
 #[derive(PartialEq, Eq)]
-struct TaskSort(State, u64);
+struct TaskSort(TaskState, u64);
 
 impl PartialOrd for TaskSort {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -87,9 +87,9 @@ impl PartialOrd for TaskSort {
 impl Ord for TaskSort {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self.0, other.0) {
-            (State::Uninterruptible, State::Uninterruptible) => self.1.cmp(&other.1),
-            (State::Uninterruptible, _) => Ordering::Greater,
-            (_, State::Uninterruptible) => Ordering::Less,
+            (TaskState::Uninterruptible, TaskState::Uninterruptible) => self.1.cmp(&other.1),
+            (TaskState::Uninterruptible, _) => Ordering::Greater,
+            (_, TaskState::Uninterruptible) => Ordering::Less,
             _ => self.1.cmp(&other.1),
         }
     }
@@ -101,7 +101,7 @@ pub struct TaskStats<'a> {
     user_hz: f32,
     buf: String,
     buf2: String,
-    tasks: HashMap<PID, (Jiffies, Jiffies, State, Stale)>,
+    tasks: HashMap<PID, (Jiffies, Jiffies, TaskState, Stale)>,
     /// Used to sort tasks by their State/CPU%. Pushing is O(1) and popping is O(log n). Pushing all
     /// the tasks and popping the 10 highest is only O(n + 10 log n) instead of sorting which is O(n
     /// log n).
@@ -234,7 +234,12 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
             let mut ent = match self.tasks.get_mut(&taskid) {
                 Some(e) => e,
                 _ => {
-                    let z = (Jiffies(0, t), Jiffies(0, t), State::Sleeping, Stale(false));
+                    let z = (
+                        Jiffies(0, t),
+                        Jiffies(0, t),
+                        TaskState::Sleeping,
+                        Stale(false),
+                    );
                     self.tasks.insert(taskid, z);
                     self.tasks.get_mut(&taskid).unwrap()
                 }
@@ -243,13 +248,13 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
             let mut stat = stat.rsplit_once(')').unwrap().1.split_ascii_whitespace();
 
             ent.2 = match stat.nth(0).unwrap() {
-                "S" => State::Sleeping,
-                "R" => State::Running,
-                "D" => State::Uninterruptible,
-                "Z" => State::Zombie,
-                "T" => State::Traced,
-                "I" => State::Idle,
-                _ => State::Unknown,
+                "S" => TaskState::Sleeping,
+                "R" => TaskState::Running,
+                "D" => TaskState::Uninterruptible,
+                "Z" => TaskState::Zombie,
+                "T" => TaskState::Traced,
+                "I" => TaskState::Idle,
+                _ => TaskState::Unknown,
             };
             ent.0 = ent.1;
             ent.1 = Jiffies(
