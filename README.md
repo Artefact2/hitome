@@ -58,9 +58,9 @@ Dependencies
 Installation
 ============
 
-1. Clone this repository: `git clone ...` then `cd hitome`
+1. Clone this repository: `git clone https://github.com/Artefact2/hitome` then `cd hitome`
 
 2. `cargo build -r`
 
 3. Run hitome with `./target/release/hitome` or copy/symlink this file in your
-   $PATH (eg `/usr/local/bin` or `~/.local/bin`)
+   `$PATH` (eg `/usr/local/bin` or `~/.local/bin`)
