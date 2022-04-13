@@ -95,14 +95,27 @@ impl Ord for TaskSort {
     }
 }
 
-struct CommandLine<'a>(&'a str, &'a str);
+/// (tcomm, stripped arg0, args)
+struct CommandLine<'a>(&'a str, &'a str, &'a str);
 
 impl<'a, 'b> fmt::Display for MaybeSmart<'a, CommandLine<'b>> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let len = f.width().unwrap_or(60) - self.0 .0.len() - 1;
-        match self.1.smart {
-            false => write!(f, "{} {:<len$}", self.0 .0, self.0 .1),
-            true => write!(f, "\x1B[1m{}\x1B[0m {:<len$}", self.0 .0, self.0 .1),
+        let len = f.width().unwrap_or(60);
+        match self.0 {
+            CommandLine(x, y, z) if y.starts_with(x) => {
+                let len = len - y.len() - 1;
+                match self.1.smart {
+                    false => write!(f, "{} {:<len$}", y, z),
+                    true => write!(f, "\x1B[1m{}\x1B[0m {:<len$.len$}", y, z),
+                }
+            }
+            CommandLine(x, y, z) => {
+                let len = len - x.len() - y.len() - 4;
+                match self.1.smart {
+                    false => write!(f, "({}) {} {:<len$}", x, y, z),
+                    true => write!(f, "({}) \x1B[1m{}\x1B[0m {:<len$.len$}", x, y, z),
+                }
+            }
         }
     }
 }
@@ -113,6 +126,7 @@ pub struct TaskStats<'a> {
     user_hz: f32,
     buf: String,
     buf2: String,
+    buf3: String,
     tasks: HashMap<PID, (Jiffies, Jiffies, TaskState, Stale)>,
     /// Used to sort tasks by their State/CPU%. Pushing is O(1) and popping is O(log n). Pushing all
     /// the tasks and popping the 10 highest is only O(n + 10 log n) instead of sorting which is O(n
@@ -186,22 +200,22 @@ impl<'a> TaskStats<'a> {
         /* XXX: find better way to do this */
         self.buf2.clear();
         write!(self.buf2, "/proc/{}/task/{}/cmdline", taskid.0, taskid.0).unwrap();
-
         let cmdline = match read_to_string(&self.buf2, &mut self.buf) {
-            Ok(_) => {
-                if self.buf.is_empty() {
-                    "?" /* XXX: kthreads? show something better */
-                } else {
-                    &self.buf
-                }
-            }
-            _ => "?",
+            Ok(_) => &self.buf,
+            _ => "",
+        };
+
+        self.buf2.clear();
+        write!(self.buf2, "/proc/{}/task/{}/comm", taskid.0, taskid.0).unwrap();
+        let comm = match read_to_string(&self.buf2, &mut self.buf3) {
+            Ok(_) => &self.buf3.strip_suffix("\n").unwrap(),
+            _ => "",
         };
 
         /* Format the cmdline: skip path of argv[0], split args by spaces */
         let max_length = 55; /* XXX: adjust this based on term/user pref */
         let mut cmdline = cmdline.split('\0');
-        let progname = cmdline.next().unwrap_or("?");
+        let progname = cmdline.next().unwrap_or("");
         let progname = match progname.rsplit_once("/") {
             Some((_, p)) => p,
             _ => progname,
@@ -239,7 +253,7 @@ impl<'a> TaskStats<'a> {
                 },
                 self.settings
             ),
-            MaybeSmart(CommandLine(progname, &self.buf2), self.settings),
+            MaybeSmart(CommandLine(comm, progname, &self.buf2), self.settings),
             newline
         )
         .unwrap();
@@ -253,6 +267,7 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
             user_hz: unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as f32,
             buf: String::new(),
             buf2: String::new(),
+            buf3: String::new(),
             tasks: HashMap::new(),
             sorted: BinaryHeap::new(),
             relevant: Default::default(),
