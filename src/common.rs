@@ -43,6 +43,7 @@ pub struct Settings {
     pub refresh: u64,
 }
 
+#[deprecated]
 pub fn newline(smart: bool) -> &'static str {
     if smart {
         "\x1B[0K\n"
@@ -51,6 +52,7 @@ pub fn newline(smart: bool) -> &'static str {
     }
 }
 
+#[deprecated]
 pub fn headings(smart: bool) -> (&'static str, &'static str) {
     if smart {
         ("\x1B[1m", "\x1B[0m")
@@ -96,38 +98,41 @@ impl Display for Percentage {
     }
 }
 
-/// Generates coloured values when printing, if the value is above defined thresholds
 #[derive(Clone, Copy)]
 pub struct Threshold<T> {
     pub val: T,
     pub med: T,
     pub high: T,
     pub crit: T,
-    /// If false, don't do any colouring
-    pub smart: bool,
 }
 
-impl<T> Display for Threshold<T>
+/// A wrapper type to access settings in fmt::Display
+pub struct MaybeSmart<'a, T>(pub T, pub &'a Settings);
+
+impl<'a, T> Display for MaybeSmart<'a, Threshold<T>>
 where
     T: Display + PartialOrd,
 {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        let w = f.width().unwrap_or(8);
+        let w = f.width().unwrap_or(self.1.colwidth);
+        let t = &self.0;
 
-        if !self.smart || self.val.partial_cmp(&self.med) == Some(Ordering::Less) {
-            /* < med or dumb terminal */
-            return write!(f, "{:w$}", self.val);
+        if !self.1.smart {
+            return write!(f, "{:w$}", t.val);
         }
 
-        if self.val.partial_cmp(&self.high) == Some(Ordering::Less) {
+        if t.val.partial_cmp(&t.med) == Some(Ordering::Less) {
+            /* < med */
+            write!(f, "{:w$}", t.val)
+        } else if t.val.partial_cmp(&t.high) == Some(Ordering::Less) {
             /* < high: we're med */
-            write!(f, "\x1B[1;93m{:w$}\x1B[0m", self.val)
-        } else if self.val.partial_cmp(&self.crit) == Some(Ordering::Less) {
+            write!(f, "\x1B[1;93m{:w$}\x1B[0m", t.val)
+        } else if t.val.partial_cmp(&t.crit) == Some(Ordering::Less) {
             /* < crit: we're high */
-            write!(f, "\x1B[1;91m{:w$}\x1B[0m", self.val)
+            write!(f, "\x1B[1;91m{:w$}\x1B[0m", t.val)
         } else {
             /* crit */
-            write!(f, "\x1B[1;95m{:w$}\x1B[0m", self.val)
+            write!(f, "\x1B[1;95m{:w$}\x1B[0m", t.val)
         }
     }
 }

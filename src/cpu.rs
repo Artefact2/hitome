@@ -148,7 +148,7 @@ impl<'a> fmt::Display for CpuStats<'a> {
                 write!(
                     f,
                     "{}",
-                    Threshold {
+                    MaybeSmart(Threshold {
                         /* Use a saturating sub, the iowait counters occasionally decrease(!). */
                         val: CpuUsage(
                             (get(cpu.1).saturating_sub(get(cpu.0)) as f32)
@@ -157,8 +157,7 @@ impl<'a> fmt::Display for CpuStats<'a> {
                         med: CpuUsage(trs.0),
                         high: CpuUsage(trs.1),
                         crit: CpuUsage(trs.2),
-                        smart: self.settings.smart,
-                    }
+                    }, self.settings)
                 )
                 .unwrap();
             }

@@ -71,8 +71,6 @@ impl<'a> StatBlock<'a> for PressureStats<'a> {
             med: Percentage(1.0),
             high: Percentage(5.0),
             crit: Percentage(10.0),
-            /* XXX: update this in fmt()? */
-            smart: s.smart,
         };
         let z = Pressure {
             some: [z; 3],
@@ -124,12 +122,12 @@ impl<'a> fmt::Display for PressureStats<'a> {
                 f,
                 "{:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$}{}",
                 label,
-                self.cpu.some[i],
-                self.cpu.full[i],
-                self.memory.some[i],
-                self.memory.full[i],
-                self.io.some[i],
-                self.io.full[i],
+                MaybeSmart(self.cpu.some[i], self.settings),
+                MaybeSmart(self.cpu.full[i], self.settings),
+                MaybeSmart(self.memory.some[i], self.settings),
+                MaybeSmart(self.memory.full[i], self.settings),
+                MaybeSmart(self.io.some[i], self.settings),
+                MaybeSmart(self.io.full[i], self.settings),
                 newline
             )?;
         }

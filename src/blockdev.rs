@@ -130,12 +130,15 @@ impl<'a> fmt::Display for BlockDeviceStats<'a> {
                 med: Percentage(50.0),
                 high: Percentage(80.0),
                 crit: Percentage(200.0),
-                smart: self.settings.smart,
             };
             write!(
                 f,
                 "{:>w$.w$} {:>w$} {:>w$} {:>w$}{}",
-                kname, rd, wt, p, newline
+                kname,
+                rd,
+                wt,
+                MaybeSmart(p, self.settings),
+                newline
             )?
         }
 

@@ -42,7 +42,6 @@ impl<'a> StatBlock<'a> for MemoryStats<'a> {
             med: Bytes(1),
             high: Bytes(1),
             crit: Bytes(1),
-            smart: s.smart,
         };
         MemoryStats {
             settings: s,
@@ -160,10 +159,11 @@ impl<'a> fmt::Display for MemoryStats<'a> {
         let (hdrbegin, hdrend) = headings(self.settings.smart);
         let w = self.settings.colwidth;
         let s = &self.state;
-        write!(f,
-               "{}{:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$}{}{}{:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$}{}{}",
-               hdrbegin, "ACTIVE", "INACTIVE", "CACHED", "FREE", "DIRTY", "W_BACK", "SWAP" ,"ZRAM", hdrend, newline,
-               s.active, s.inactive, s.cached, s.free, s.dirty, s.writeback, s.swap, s.zram, newline, newline
-        )
+        write!(
+            f,
+            "{}{:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$}{}{}{:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$}{}{}",
+            hdrbegin, "ACTIVE", "INACTIVE", "CACHED", "FREE", "DIRTY", "W_BACK", "SWAP" ,"ZRAM", hdrend, newline,
+            s.active, s.inactive, s.cached, s.free, MaybeSmart(s.dirty, self.settings),
+            MaybeSmart(s.writeback, self.settings), s.swap, s.zram, newline, newline)
     }
 }
