@@ -14,7 +14,6 @@
  */
 
 use super::common::*;
-use page_size;
 use std::fmt;
 
 struct Memory {
@@ -45,7 +44,7 @@ impl<'a> StatBlock<'a> for MemoryStats<'a> {
         };
         MemoryStats {
             settings: s,
-            pagesize: page_size::get() as u64,
+            pagesize: unsafe { libc::sysconf(libc::_SC_PAGE_SIZE) } as u64,
             state: Memory {
                 active: Bytes(0),
                 inactive: Bytes(0),
