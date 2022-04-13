@@ -95,6 +95,18 @@ impl Ord for TaskSort {
     }
 }
 
+struct CommandLine<'a>(&'a str, &'a str);
+
+impl<'a, 'b> fmt::Display for MaybeSmart<'a, CommandLine<'b>> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let len = f.width().unwrap_or(60) - self.0 .0.len() - 1;
+        match self.1.smart {
+            false => write!(f, "{} {:<len$}", self.0 .0, self.0 .1),
+            true => write!(f, "\x1B[1m{}\x1B[0m {:<len$}", self.0 .0, self.0 .1),
+        }
+    }
+}
+
 pub struct TaskStats<'a> {
     settings: &'a Settings,
     /// How many jiffies in a second, as exposed to userspace
@@ -174,11 +186,11 @@ impl<'a> TaskStats<'a> {
         /* XXX: find better way to do this */
         self.buf2.clear();
         write!(self.buf2, "/proc/{}/task/{}/cmdline", taskid.0, taskid.0).unwrap();
-        /* XXX: this is very rough, format me better! */
+
         let cmdline = match read_to_string(&self.buf2, &mut self.buf) {
             Ok(_) => {
                 if self.buf.is_empty() {
-                    "?"
+                    "?" /* XXX: kthreads? show something better */
                 } else {
                     &self.buf
                 }
@@ -186,10 +198,36 @@ impl<'a> TaskStats<'a> {
             _ => "?",
         };
 
+        /* Format the cmdline: skip path of argv[0], split args by spaces */
+        let max_length = 55; /* XXX: adjust this based on term/user pref */
+        let mut cmdline = cmdline.split('\0');
+        let progname = cmdline.next().unwrap_or("?");
+        let progname = match progname.rsplit_once("/") {
+            Some((_, p)) => p,
+            _ => progname,
+        };
+
+        self.buf2.clear();
+        for arg in cmdline {
+            if self.buf2.len() >= max_length {
+                break;
+            }
+
+            /* Some half-assed shell-like escaping, should cover most cases, doesn't need to be
+             * perfect since it will be truncated anyway */
+            match arg.contains(' ') {
+                false => write!(self.buf2, "{} ", arg).unwrap(),
+                true => match arg.contains('\'') {
+                    false => write!(self.buf2, "'{}' ", arg).unwrap(),
+                    /* XXX: creating a new String here may not be a good idea, hopefully this case is rare */
+                    true => write!(self.buf2, "'{}' ", arg.replace('\\', "\\'")).unwrap(),
+                },
+            }
+        }
+
         write!(
             self.relevant[i],
-            /* XXX: fix hardcoded length */
-            "{:>w$} {:1} {:>4} {:<55.55}{}",
+            "{:>w$} {:1} {:>4} {:<max_length$}{}",
             taskid.0,
             MaybeSmart(ent.2, self.settings),
             MaybeSmart(
@@ -201,7 +239,7 @@ impl<'a> TaskStats<'a> {
                 },
                 self.settings
             ),
-            cmdline,
+            MaybeSmart(CommandLine(progname, &self.buf2), self.settings),
             newline
         )
         .unwrap();
@@ -223,7 +261,6 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
         ts
     }
 
-    /* XXX: split off into smaller, more digestible fns */
     fn update(&mut self) {
         /* Measure and store jiffies of each task in self.tasks */
         for t in self.tasks.values_mut() {
