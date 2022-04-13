@@ -38,11 +38,6 @@ impl<'a> PressureStats<'a> {
             _ => return,
         }
 
-        match read_to_string(pa, buf) {
-            Ok(_) => (),
-            _ => return,
-        }
-
         for line in buf.lines() {
             let mut elems = line.split_ascii_whitespace();
             let pr = match elems.nth(0) {
