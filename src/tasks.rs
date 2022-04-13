@@ -21,10 +21,8 @@ use std::fmt::Write;
 use std::time::Instant;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Linux PIDs should not go above 2^22, says proc(5)
 struct PID(u32);
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct TaskID(PID, PID);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 /// 1 jiffie = 1/user_hz seconds
@@ -103,11 +101,11 @@ pub struct TaskStats<'a> {
     user_hz: f32,
     buf: String,
     buf2: String,
-    tasks: HashMap<TaskID, (Jiffies, Jiffies, State, Stale)>,
+    tasks: HashMap<PID, (Jiffies, Jiffies, State, Stale)>,
     /// Used to sort tasks by their State/CPU%. Pushing is O(1) and popping is O(log n). Pushing all
     /// the tasks and popping the 10 highest is only O(n + 10 log n) instead of sorting which is O(n
     /// log n).
-    sorted: BinaryHeap<(TaskSort, TaskID)>,
+    sorted: BinaryHeap<(TaskSort, PID)>,
     /// XXX: make the number of tasks user-configurable and/or guess based on terminal lines
     relevant: [String; 10],
 }
@@ -117,7 +115,7 @@ pub struct TaskStats<'a> {
 /// racy. XXX: this would work better as an Iterator, but i don't know how to do that
 fn map_tasks<F>(buf: &mut String, mut doit: F)
 where
-    F: FnMut(TaskID, &str),
+    F: FnMut(PID, &str),
 {
     for process in std::fs::read_dir("/proc").unwrap() {
         let process = match process {
@@ -129,11 +127,6 @@ where
             Ok(f) if f.is_dir() => (),
             _ => continue,
         }
-
-        let ppid = match process.file_name().to_str().unwrap_or("").parse::<u32>() {
-            Ok(i) => PID(i),
-            _ => continue,
-        };
 
         /* XXX: is this allocating in every loop? */
         let mut tasks_path = process.path();
@@ -154,7 +147,7 @@ where
             let mut path = task.path();
             path.push("stat");
             match read_to_string(path, buf) {
-                Ok(_) => doit(TaskID(ppid, taskid), buf),
+                Ok(_) => doit(taskid, buf),
                 _ => continue,
             }
         }
@@ -165,7 +158,7 @@ impl<'a> TaskStats<'a> {
     /* XXX: we don't really need to mutate self, we just need an output String, but the borrow
      * checker won't let us */
     /// Format a task's line to self.relevant[i]
-    fn format_task(&mut self, taskid: TaskID, i: usize) {
+    fn format_task(&mut self, taskid: PID, i: usize) {
         let newline = MaybeSmart(Newline(), self.settings);
         let w = self.settings.colwidth;
 
@@ -180,12 +173,7 @@ impl<'a> TaskStats<'a> {
 
         /* XXX: find better way to do this */
         self.buf2.clear();
-        write!(
-            self.buf2,
-            "/proc/{}/task/{}/cmdline",
-            taskid.0 .0, taskid.1 .0
-        )
-        .unwrap();
+        write!(self.buf2, "/proc/{}/task/{}/cmdline", taskid.0, taskid.0).unwrap();
         /* XXX: this is very rough, format me better! */
         let cmdline = match read_to_string(&self.buf2, &mut self.buf) {
             Ok(_) => {
@@ -202,7 +190,7 @@ impl<'a> TaskStats<'a> {
             self.relevant[i],
             /* XXX: fix hardcoded length */
             "{:>w$} {:1} {:>4} {:<55.55}{}",
-            taskid.1 .0,
+            taskid.0,
             MaybeSmart(ent.2, self.settings),
             MaybeSmart(
                 Threshold {
