@@ -23,7 +23,7 @@ pub const MIN_COL_WIDTH: usize = 8;
 
 #[derive(FromArgs)]
 /// A very simple, non-interactive system monitor
-pub struct CLI {
+pub struct Cli {
     #[argh(option, short = 'c')]
     /// true/false: use colour and other fancy escape sequences (defaults to guessing based on $TERM)
     pub colour: Option<bool>,
@@ -113,8 +113,8 @@ impl<'a, 'b> Display for MaybeSmart<'a, Heading<'b>> {
 impl<'a> Display for MaybeSmart<'a, Newline> {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match self.1.smart {
-            false => write!(f, "\n"),
-            true => write!(f, "\x1B[0K\n"),
+            false => writeln!(f),
+            true => writeln!(f, "\x1B[0K"),
         }
     }
 }
@@ -216,7 +216,7 @@ where
         }
 
         let widths = [&self.tbuf, &self.ubuf]
-            .map(|s| ascii_term_printable_chars_len(s.lines().nth(0).unwrap()));
+            .map(|s| ascii_term_printable_chars_len(s.lines().next().unwrap()));
         /* Round first width to line up columns */
         let wfirst =
             widths[0] + self.settings.colwidth - (widths[0] % (self.settings.colwidth + 1));
@@ -254,6 +254,9 @@ where
 fn ascii_term_printable_chars_len(s: &str) -> usize {
     let mut i = 0;
     let mut iter = s.chars();
+    /* Shut up, clippy, we *do* need a while let, because we have to call .next() sometimes inside
+     * the loop */
+    #[allow(clippy::while_let_on_iterator)]
     while let Some(c) = iter.next() {
         if !c.is_ascii() {
             unimplemented!();
@@ -265,7 +268,7 @@ fn ascii_term_printable_chars_len(s: &str) -> usize {
             if c == '[' {
                 /* Gobble up ESC [ (...) 0x40..=0x7E */
                 while let Some(c) = iter.next() {
-                    if c >= '\x40' && c <= '\x7E' {
+                    if ('\x40'..='\x7E').contains(&c) {
                         break;
                     }
                 }

@@ -63,7 +63,7 @@ impl<'a> StatBlock<'a> for FilesystemStats<'a> {
                 .split_once(" mounted on ")
                 .unwrap();
 
-            if !bdev.starts_with("/") {
+            if !bdev.starts_with('/') {
                 /* Not interested in these kind of mounts */
                 continue;
             }

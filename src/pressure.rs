@@ -40,7 +40,7 @@ impl<'a> PressureStats<'a> {
 
         for line in buf.lines() {
             let mut elems = line.split_ascii_whitespace();
-            let pr = match elems.nth(0) {
+            let pr = match elems.next() {
                 Some("some") => &mut pr.some,
                 Some("full") => &mut pr.full,
                 _ => continue,
@@ -90,7 +90,7 @@ impl<'a> StatBlock<'a> for PressureStats<'a> {
 impl<'a> fmt::Display for PressureStats<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         /* XXX: this isn't very reliable */
-        if self.buf.len() == 0 {
+        if self.buf.is_empty() {
             return Ok(());
         }
 

@@ -64,7 +64,7 @@ impl<'a> StatBlock<'a> for MemoryStats<'a> {
         s.swap.0 = 0;
         s.zram.0 = 0;
 
-        if let Ok(_) = read_to_string("/proc/swaps", &mut self.buf) {
+        if read_to_string("/proc/swaps", &mut self.buf).is_ok() {
             for line in self.buf.lines().skip(1) {
                 s.swap.0 += line
                     .split_ascii_whitespace()
@@ -92,7 +92,7 @@ impl<'a> StatBlock<'a> for MemoryStats<'a> {
 
             let mut mm = bdev.path();
             mm.push("mm_stat");
-            if let Ok(_) = read_to_string(mm, &mut self.buf) {
+            if read_to_string(mm, &mut self.buf).is_ok() {
                 /* https://docs.kernel.org/admin-guide/blockdev/zram.html */
                 s.zram.0 += self
                     .buf

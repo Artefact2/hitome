@@ -22,7 +22,7 @@ use std::time::Instant;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// Linux PIDs should not go above 2^22, says proc(5)
-struct PID(u32);
+struct Pid(u32);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 /// 1 jiffie = 1/user_hz seconds
@@ -127,11 +127,11 @@ pub struct TaskStats<'a> {
     buf: String,
     buf2: String,
     buf3: String,
-    tasks: HashMap<PID, (Jiffies, Jiffies, TaskState, Stale)>,
+    tasks: HashMap<Pid, (Jiffies, Jiffies, TaskState, Stale)>,
     /// Used to sort tasks by their State/CPU%. Pushing is O(1) and popping is O(log n). Pushing all
     /// the tasks and popping the 10 highest is only O(n + 10 log n) instead of sorting which is O(n
     /// log n).
-    sorted: BinaryHeap<(TaskSort, PID)>,
+    sorted: BinaryHeap<(TaskSort, Pid)>,
     /// XXX: make the number of tasks user-configurable and/or guess based on terminal lines
     relevant: [String; 10],
 }
@@ -141,7 +141,7 @@ pub struct TaskStats<'a> {
 /// racy. XXX: this would work better as an Iterator, but i don't know how to do that
 fn map_tasks<F>(buf: &mut String, mut doit: F)
 where
-    F: FnMut(PID, &str),
+    F: FnMut(Pid, &str),
 {
     for process in std::fs::read_dir("/proc").unwrap() {
         let process = match process {
@@ -166,7 +166,7 @@ where
                 _ => continue,
             };
             let taskid = match task.file_name().to_str().unwrap_or("").parse::<u32>() {
-                Ok(p) => PID(p),
+                Ok(p) => Pid(p),
                 _ => continue,
             };
 
@@ -184,7 +184,7 @@ impl<'a> TaskStats<'a> {
     /* XXX: we don't really need to mutate self, we just need an output String, but the borrow
      * checker won't let us */
     /// Format a task's line to self.relevant[i]
-    fn format_task(&mut self, taskid: PID, i: usize) {
+    fn format_task(&mut self, taskid: Pid, i: usize) {
         let newline = MaybeSmart(Newline(), self.settings);
         let w = self.settings.colwidth;
 
@@ -208,7 +208,7 @@ impl<'a> TaskStats<'a> {
         self.buf2.clear();
         write!(self.buf2, "/proc/{}/task/{}/comm", taskid.0, taskid.0).unwrap();
         let comm = match read_to_string(&self.buf2, &mut self.buf3) {
-            Ok(_) => &self.buf3.strip_suffix("\n").unwrap(),
+            Ok(_) => self.buf3.strip_suffix('\n').unwrap(),
             _ => "",
         };
 
@@ -216,7 +216,7 @@ impl<'a> TaskStats<'a> {
         let max_length = 55; /* XXX: adjust this based on term/user pref */
         let mut cmdline = cmdline.split('\0');
         let progname = cmdline.next().unwrap_or("");
-        let progname = match progname.rsplit_once("/") {
+        let progname = match progname.rsplit_once('/') {
             Some((_, p)) => p,
             _ => progname,
         };
@@ -299,7 +299,7 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
 
             let mut stat = stat.rsplit_once(')').unwrap().1.split_ascii_whitespace();
 
-            ent.2 = match stat.nth(0).unwrap() {
+            ent.2 = match stat.next().unwrap() {
                 "S" => TaskState::Sleeping,
                 "R" => TaskState::Running,
                 "D" => TaskState::Uninterruptible,
@@ -311,7 +311,7 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
             ent.0 = ent.1;
             ent.1 = Jiffies(
                 stat.nth(10).unwrap().parse::<u64>().unwrap()
-                    + stat.nth(0).unwrap().parse::<u64>().unwrap(),
+                    + stat.next().unwrap().parse::<u64>().unwrap(),
                 t,
             );
             ent.3 = Stale(false);

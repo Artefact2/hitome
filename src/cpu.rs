@@ -71,7 +71,7 @@ impl<'a> StatBlock<'a> for CpuStats<'a> {
         for (i, cpu) in self.buf.lines().skip(1).enumerate() {
             let mut fields = cpu.split_ascii_whitespace();
 
-            if !fields.nth(0).unwrap().starts_with("cpu") {
+            if !fields.next().unwrap().starts_with("cpu") {
                 return;
             }
 
@@ -112,7 +112,7 @@ impl<'a> StatBlock<'a> for CpuStats<'a> {
 
 impl<'a> fmt::Display for CpuStats<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.state.len() == 0 {
+        if self.state.is_empty() {
             return Ok(());
         }
 

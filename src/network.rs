@@ -59,7 +59,7 @@ impl<'a> StatBlock<'a> for NetworkStats<'a> {
 
         for dev in self.buf.lines().skip(2) {
             let mut dev = dev.split_ascii_whitespace();
-            let kname = dev.nth(0).unwrap().strip_suffix(':').unwrap();
+            let kname = dev.next().unwrap().strip_suffix(':').unwrap();
 
             /* XXX: make this user-configurable */
             if kname.starts_with("br") {
@@ -79,7 +79,7 @@ impl<'a> StatBlock<'a> for NetworkStats<'a> {
             ent.0 = ent.1;
             ent.1 = IfaceStats(
                 t,
-                RxBytes(Bytes(dev.nth(0).unwrap().parse::<u64>().unwrap())),
+                RxBytes(Bytes(dev.next().unwrap().parse::<u64>().unwrap())),
                 TxBytes(Bytes(dev.nth(7).unwrap().parse::<u64>().unwrap())),
             );
             ent.2 = Stale(false);

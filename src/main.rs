@@ -43,17 +43,13 @@ macro_rules! update {
 
 fn main() {
     if !cfg!(target_os = "linux") {
-        writeln!(
-            io::stderr(),
-            "Hitome only works by reading Linux-specific /proc interfaces, sorry."
-        )
-        .unwrap();
+        eprintln!("Hitome only works by reading Linux-specific /proc interfaces, sorry.");
         return;
     }
 
     let settings;
     {
-        let cli: CLI = argh::from_env();
+        let cli: Cli = argh::from_env();
         settings = Settings {
             smart: cli
                 .colour
