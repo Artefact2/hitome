@@ -24,7 +24,7 @@ use std::time::Instant;
 struct PID(u32);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-/// 1 jiffy = 1/user_hz seconds
+/// 1 jiffie = 1/user_hz seconds
 struct Jiffies(u64, Instant);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -38,22 +38,39 @@ enum State {
     Unknown,
 }
 
-/* XXX: impl colour Display for Smart(State) */
-impl fmt::Display for State {
+impl<'a> fmt::Display for MaybeSmart<'a, State> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{:1.1}",
-            match self {
-                State::Sleeping => 'S',
-                State::Running => 'R',
-                State::Uninterruptible => 'D',
-                State::Zombie => 'Z',
-                State::Traced => 'T',
-                State::Idle => 'I',
-                State::Unknown => '?',
-            }
-        )
+        let letter = match self.0 {
+            State::Sleeping => 'S',
+            State::Running => 'R',
+            State::Uninterruptible => 'D',
+            State::Zombie => 'Z',
+            State::Traced => 'T',
+            State::Idle => 'I',
+            State::Unknown => '?',
+        };
+
+        let w = f.width().unwrap_or(1);
+
+        if !self.1.smart {
+            return write!(f, "{:>w$}", letter);
+        }
+
+        match self.0 {
+            State::Running => write!(f, "\x1B[1;93m{:>w$}\x1B[0m", letter),
+            State::Uninterruptible => write!(f, "\x1B[1;95m{:>w$}\x1B[0m", letter),
+            _ => write!(f, "{:>w$}", letter),
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, PartialOrd)]
+struct CPUPercentage(f32);
+
+impl fmt::Display for CPUPercentage {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let w = f.width().unwrap_or(4) - 1;
+        write!(f, "{:>w$.0}%", self.0)
     }
 }
 
@@ -180,7 +197,7 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
                 .push((TaskSort(task.2, task.1 .0 - task.0 .0), *pid));
         }
 
-        let newline = newline(self.settings.smart);
+        let newline = MaybeSmart(Newline(), self.settings);
         let w = self.settings.colwidth;
         for s in self.relevant.iter_mut() {
             s.clear();
@@ -202,15 +219,33 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
             write!(self.buf2, "/proc/{}/cmdline", pid.0).unwrap();
             /* XXX: this is very rough, format me better! */
             let cmdline = match read_to_string(&self.buf2, &mut self.buf) {
-                Ok(_) => &self.buf,
+                Ok(_) => {
+                    if self.buf.is_empty() {
+                        "?"
+                    } else {
+                        &self.buf
+                    }
+                }
                 _ => "?",
             };
 
             write!(
                 s,
                 /* XXX: fix hardcoded length */
-                "{:>w$} {} {:>3.0}% {:<55.55}{}",
-                pid.0, ent.2, cpupc, cmdline, newline
+                "{:>w$} {:1} {:>4} {:<55.55}{}",
+                pid.0,
+                MaybeSmart(ent.2, self.settings),
+                MaybeSmart(
+                    Threshold {
+                        val: CPUPercentage(cpupc),
+                        med: CPUPercentage(40.0),
+                        high: CPUPercentage(60.0),
+                        crit: CPUPercentage(80.0),
+                    },
+                    self.settings
+                ),
+                cmdline,
+                newline
             )
             .unwrap();
         }
@@ -219,13 +254,14 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
 
 impl<'a> fmt::Display for TaskStats<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let newline = newline(self.settings.smart);
-        let (hdrbegin, hdrend) = headings(self.settings.smart);
-        let w = self.settings.colwidth;
         write!(
             f,
-            "{}{:>w$} S CPU% COMMAND{}{}",
-            hdrbegin, "PID", hdrend, newline
+            "{} {:1} {:4} {:<}{}",
+            MaybeSmart(Heading("PID"), self.settings),
+            MaybeSmart(Heading("S"), self.settings),
+            MaybeSmart(Heading("CPU%"), self.settings),
+            MaybeSmart(Heading("COMMAND"), self.settings),
+            MaybeSmart(Newline(), self.settings)
         )?;
 
         for s in self.relevant.iter() {

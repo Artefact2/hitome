@@ -155,15 +155,26 @@ impl<'a> StatBlock<'a> for MemoryStats<'a> {
 
 impl<'a> fmt::Display for MemoryStats<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let newline = newline(self.settings.smart);
-        let (hdrbegin, hdrend) = headings(self.settings.smart);
         let w = self.settings.colwidth;
         let s = &self.state;
+        let se = &self.settings;
+        let newline = MaybeSmart(Newline(), se);
         write!(
             f,
-            "{}{:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$}{}{}{:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$}{}{}",
-            hdrbegin, "ACTIVE", "INACTIVE", "CACHED", "FREE", "DIRTY", "W_BACK", "SWAP" ,"ZRAM", hdrend, newline,
+            "{:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$}{}{:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$}{}{}",
+            MaybeSmart(Heading("ACTIVE"), se),
+            MaybeSmart(Heading("INACTIVE"), se),
+            MaybeSmart(Heading("CACHED"), se),
+            MaybeSmart(Heading("FREE"), se),
+            MaybeSmart(Heading("DIRTY"), se),
+            MaybeSmart(Heading("W_BACK"), se),
+            MaybeSmart(Heading("SWAP"), se),
+            MaybeSmart(Heading("ZRAM"), se),
+            newline,
             s.active, s.inactive, s.cached, s.free, MaybeSmart(s.dirty, self.settings),
-            MaybeSmart(s.writeback, self.settings), s.swap, s.zram, newline, newline)
+            MaybeSmart(s.writeback, self.settings), s.swap, s.zram,
+            newline,
+            newline
+        )
     }
 }

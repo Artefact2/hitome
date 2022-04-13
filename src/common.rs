@@ -15,7 +15,7 @@
 
 use argh::FromArgs;
 use std::cmp::Ordering;
-use std::fmt::{Display, Formatter, Result};
+use std::fmt::{Alignment, Display, Formatter, Result};
 use std::fs::File;
 use std::io::Read;
 
@@ -106,8 +106,36 @@ pub struct Threshold<T> {
     pub crit: T,
 }
 
+pub struct Heading<'a>(pub &'a str);
+pub struct Newline();
+
 /// A wrapper type to access settings in fmt::Display
 pub struct MaybeSmart<'a, T>(pub T, pub &'a Settings);
+
+impl<'a, 'b> Display for MaybeSmart<'a, Heading<'b>> {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        let w = f.width().unwrap_or(self.1.colwidth);
+
+        /* XXX: is there a way to not repeat ourselves? */
+        match (self.1.smart, f.align()) {
+            (false, Some(Alignment::Center)) => write!(f, "{:^w$}", self.0 .0),
+            (false, Some(Alignment::Left)) => write!(f, "{:<w$}", self.0 .0),
+            (false, _) => write!(f, "{:>w$}", self.0 .0),
+            (true, Some(Alignment::Center)) => write!(f, "\x1B[1m{:^w$}\x1B[0m", self.0 .0),
+            (true, Some(Alignment::Left)) => write!(f, "\x1B[1m{:<w$}\x1B[0m", self.0 .0),
+            (true, _) => write!(f, "\x1B[1m{:>w$}\x1B[0m", self.0 .0),
+        }
+    }
+}
+
+impl<'a> Display for MaybeSmart<'a, Newline> {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        match self.1.smart {
+            false => write!(f, "\n"),
+            true => write!(f, "\x1B[0K\n"),
+        }
+    }
+}
 
 impl<'a, T> Display for MaybeSmart<'a, Threshold<T>>
 where
@@ -118,21 +146,21 @@ where
         let t = &self.0;
 
         if !self.1.smart {
-            return write!(f, "{:w$}", t.val);
+            return write!(f, "{:>w$}", t.val);
         }
 
         if t.val.partial_cmp(&t.med) == Some(Ordering::Less) {
             /* < med */
-            write!(f, "{:w$}", t.val)
+            write!(f, "{:>w$}", t.val)
         } else if t.val.partial_cmp(&t.high) == Some(Ordering::Less) {
             /* < high: we're med */
-            write!(f, "\x1B[1;93m{:w$}\x1B[0m", t.val)
+            write!(f, "\x1B[1;93m{:>w$}\x1B[0m", t.val)
         } else if t.val.partial_cmp(&t.crit) == Some(Ordering::Less) {
             /* < crit: we're high */
-            write!(f, "\x1B[1;91m{:w$}\x1B[0m", t.val)
+            write!(f, "\x1B[1;91m{:>w$}\x1B[0m", t.val)
         } else {
             /* crit */
-            write!(f, "\x1B[1;95m{:w$}\x1B[0m", t.val)
+            write!(f, "\x1B[1;95m{:>w$}\x1B[0m", t.val)
         }
     }
 }
@@ -141,7 +169,7 @@ where
 pub struct Stale(pub bool);
 
 /// Helper function similar to std::fs::read_to_string() that allows reusing the buffer
-/* XXX: don't panic on invalid utf8 */
+/* XXX: don't panic on invalid utf8! this really matters for reading eg /proc/xxx/cmdline */
 pub fn read_to_string<P: AsRef<std::path::Path>>(p: P, s: &mut String) -> std::io::Result<usize> {
     s.clear();
     let mut f = File::open(p)?;
@@ -217,7 +245,7 @@ where
             return write!(f, "{}{}", self.tbuf, self.ubuf);
         }
 
-        let newline = newline(self.settings.smart);
+        let newline = MaybeSmart(Newline(), self.settings);
         let mut iters = (self.tbuf.lines(), self.ubuf.lines());
         loop {
             match (iters.0.next(), iters.1.next()) {
