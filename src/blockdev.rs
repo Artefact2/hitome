@@ -111,13 +111,16 @@ impl<'a> fmt::Display for BlockDeviceStats<'a> {
             return Ok(());
         }
 
-        let newline = newline(self.settings.smart);
-        let (hdrb, hdre) = headings(self.settings.smart);
+        let newline = MaybeSmart(Newline(), self.settings);
         let w = self.settings.colwidth;
         write!(
             f,
-            "{}{:>w$} {:>w$} {:>w$} {:>w$}{}{}",
-            hdrb, "DEVICE", "READ/s", "WRITE/s", "PRESSURE", hdre, newline
+            "{} {} {} {}{}",
+            MaybeSmart(Heading("DEVICE"), self.settings),
+            MaybeSmart(Heading("READ/s"), self.settings),
+            MaybeSmart(Heading("WRITE/s"), self.settings),
+            MaybeSmart(Heading("PRESSURE"), self.settings),
+            newline
         )?;
 
         for (kname, s) in self.devices.iter() {

@@ -100,20 +100,18 @@ impl<'a> fmt::Display for PressureStats<'a> {
         }
 
         let w = self.settings.colwidth;
-        let newline = newline(self.settings.smart);
-        let (hdrbegin, hdrend) = headings(self.settings.smart);
+        let s = self.settings;
+        let newline = MaybeSmart(Newline(), s);
         write!(
             f,
-            "{}{:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$}{}{}",
-            hdrbegin,
-            "PSI",
-            "SOME_CPU",
-            "FULL_CPU",
-            "SOME_MEM",
-            "FULL_MEM",
-            "SOME_IO",
-            "FULL_IO",
-            hdrend,
+            "{} {} {} {} {} {} {}{}",
+            MaybeSmart(Heading("PSI"), s),
+            MaybeSmart(Heading("SOME_CPU"), s),
+            MaybeSmart(Heading("FULL_CPU"), s),
+            MaybeSmart(Heading("SOME_MEM"), s),
+            MaybeSmart(Heading("FULL_MEM"), s),
+            MaybeSmart(Heading("SOME_IO"), s),
+            MaybeSmart(Heading("FULL_IO"), s),
             newline
         )?;
 

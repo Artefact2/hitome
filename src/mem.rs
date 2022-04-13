@@ -161,7 +161,7 @@ impl<'a> fmt::Display for MemoryStats<'a> {
         let newline = MaybeSmart(Newline(), se);
         write!(
             f,
-            "{:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$}{}{:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$}{}{}",
+            "{} {} {} {} {} {} {} {}{}{:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$} {:>w$}{}{}",
             MaybeSmart(Heading("ACTIVE"), se),
             MaybeSmart(Heading("INACTIVE"), se),
             MaybeSmart(Heading("CACHED"), se),
@@ -171,8 +171,14 @@ impl<'a> fmt::Display for MemoryStats<'a> {
             MaybeSmart(Heading("SWAP"), se),
             MaybeSmart(Heading("ZRAM"), se),
             newline,
-            s.active, s.inactive, s.cached, s.free, MaybeSmart(s.dirty, self.settings),
-            MaybeSmart(s.writeback, self.settings), s.swap, s.zram,
+            s.active,
+            s.inactive,
+            s.cached,
+            s.free,
+            MaybeSmart(s.dirty, self.settings),
+            MaybeSmart(s.writeback, self.settings),
+            s.swap,
+            s.zram,
             newline,
             newline
         )

@@ -43,24 +43,6 @@ pub struct Settings {
     pub refresh: u64,
 }
 
-#[deprecated]
-pub fn newline(smart: bool) -> &'static str {
-    if smart {
-        "\x1B[0K\n"
-    } else {
-        "\n"
-    }
-}
-
-#[deprecated]
-pub fn headings(smart: bool) -> (&'static str, &'static str) {
-    if smart {
-        ("\x1B[1m", "\x1B[0m")
-    } else {
-        ("", "")
-    }
-}
-
 pub trait StatBlock<'a> {
     fn new(s: &'a Settings) -> Self;
     fn update(&mut self);

@@ -127,13 +127,16 @@ impl<'a> fmt::Display for FilesystemStats<'a> {
             return Ok(());
         }
 
-        let newline = newline(self.settings.smart);
-        let (hdrb, hdre) = headings(self.settings.smart);
+        let newline = MaybeSmart(Newline(), self.settings);
         let w = self.settings.colwidth;
         write!(
             f,
-            "{}{:>w$} {:>w$} {:>w$} {:>w$}{}{}",
-            hdrb, "FS", "USED%", "USED", "AVAIL", hdre, newline
+            "{} {} {} {}{}",
+            MaybeSmart(Heading("FS"), self.settings),
+            MaybeSmart(Heading("USED%"), self.settings),
+            MaybeSmart(Heading("USED"), self.settings),
+            MaybeSmart(Heading("AVAIL"), self.settings),
+            newline
         )?;
 
         for (k, v) in self.filesystems.iter() {

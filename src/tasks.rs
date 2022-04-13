@@ -193,6 +193,10 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
 
         self.sorted.clear();
         for (pid, task) in self.tasks.iter() {
+            if task.0 .1 == task.1 .1 {
+                /* Task was seen for the first time, data is not accurate yet */
+                continue;
+            }
             self.sorted
                 .push((TaskSort(task.2, task.1 .0 - task.0 .0), *pid));
         }

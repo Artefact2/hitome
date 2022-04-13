@@ -116,13 +116,11 @@ impl<'a> fmt::Display for CpuStats<'a> {
             return Ok(());
         }
 
-        let newline = newline(self.settings.smart);
-        let (hdrstart, hdrend) = headings(self.settings.smart);
-        let w = self.settings.colwidth;
+        let newline = MaybeSmart(Newline(), self.settings);
 
         ["IOWAIT", "SYSTEM", "USER", "NICE"].map(|cat| {
             /* XXX: find way to pass through io::Errors */
-            write!(f, "{}{:>w$}{} ", hdrstart, cat, hdrend).unwrap();
+            write!(f, "{} ", MaybeSmart(Heading(cat), self.settings)).unwrap();
 
             /* XXX: this doesn't feel like the best way */
             let get = |c: CpuTicks| match cat {
