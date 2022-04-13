@@ -35,6 +35,7 @@ enum State {
     Zombie,
     Traced,
     Idle,
+    Unknown,
 }
 
 /* XXX: impl colour Display for Smart(State) */
@@ -50,6 +51,7 @@ impl fmt::Display for State {
                 State::Zombie => 'Z',
                 State::Traced => 'T',
                 State::Idle => 'I',
+                State::Unknown => '?',
             }
         )
     }
@@ -159,7 +161,7 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
                 "Z" => State::Zombie,
                 "T" => State::Traced,
                 "I" => State::Idle,
-                x => unimplemented!("unsupported task state {}", x),
+                _ => State::Unknown,
             };
             ent.0 = ent.1;
             ent.1 = Jiffies(
