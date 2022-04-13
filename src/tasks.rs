@@ -23,6 +23,9 @@ use std::time::Instant;
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct PID(u32);
 
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct TaskID(PID, PID);
+
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 /// 1 jiffie = 1/user_hz seconds
 struct Jiffies(u64, Instant);
@@ -100,13 +103,121 @@ pub struct TaskStats<'a> {
     user_hz: f32,
     buf: String,
     buf2: String,
-    tasks: HashMap<PID, (Jiffies, Jiffies, State, Stale)>,
+    tasks: HashMap<TaskID, (Jiffies, Jiffies, State, Stale)>,
     /// Used to sort tasks by their State/CPU%. Pushing is O(1) and popping is O(log n). Pushing all
     /// the tasks and popping the 10 highest is only O(n + 10 log n) instead of sorting which is O(n
     /// log n).
-    sorted: BinaryHeap<(TaskSort, PID)>,
+    sorted: BinaryHeap<(TaskSort, TaskID)>,
     /// XXX: make the number of tasks user-configurable and/or guess based on terminal lines
     relevant: [String; 10],
+}
+
+/// Walk /proc and call the closure for each task, eg /proc/X/task/Y. Skips invalid files instead of
+/// panicking, as tasks are created/deleted all the time and scanning them in /proc is inherently
+/// racy. XXX: this would work better as an Iterator, but i don't know how to do that
+fn map_tasks<F>(buf: &mut String, mut doit: F)
+where
+    F: FnMut(TaskID, &str),
+{
+    for process in std::fs::read_dir("/proc").unwrap() {
+        let process = match process {
+            Ok(p) => p,
+            _ => continue,
+        };
+
+        match process.file_type() {
+            Ok(f) if f.is_dir() => (),
+            _ => continue,
+        }
+
+        let ppid = match process.file_name().to_str().unwrap_or("").parse::<u32>() {
+            Ok(i) => PID(i),
+            _ => continue,
+        };
+
+        /* XXX: is this allocating in every loop? */
+        let mut tasks_path = process.path();
+        tasks_path.push("task");
+        for task in match std::fs::read_dir(tasks_path) {
+            Ok(a) => a,
+            _ => continue,
+        } {
+            let task = match task {
+                Ok(p) => p,
+                _ => continue,
+            };
+            let taskid = match task.file_name().to_str().unwrap_or("").parse::<u32>() {
+                Ok(p) => PID(p),
+                _ => continue,
+            };
+
+            let mut path = task.path();
+            path.push("stat");
+            match read_to_string(path, buf) {
+                Ok(_) => doit(TaskID(ppid, taskid), buf),
+                _ => continue,
+            }
+        }
+    }
+}
+
+impl<'a> TaskStats<'a> {
+    /* XXX: we don't really need to mutate self, we just need an output String, but the borrow
+     * checker won't let us */
+    /// Format a task's line to self.relevant[i]
+    fn format_task(&mut self, taskid: TaskID, i: usize) {
+        let newline = MaybeSmart(Newline(), self.settings);
+        let w = self.settings.colwidth;
+
+        let ent = self.tasks.get(&taskid).unwrap();
+        let cpupc = ((100000 * (ent.1 .0 - ent.0 .0)) as f32)
+            / self.user_hz
+            / ((ent.1 .1 - ent.0 .1).as_millis() as f32);
+        if cpupc < 1.0 {
+            /* Don't show tasks that barely use the CPU */
+            return;
+        }
+
+        /* XXX: find better way to do this */
+        self.buf2.clear();
+        write!(
+            self.buf2,
+            "/proc/{}/task/{}/cmdline",
+            taskid.0 .0, taskid.1 .0
+        )
+        .unwrap();
+        /* XXX: this is very rough, format me better! */
+        let cmdline = match read_to_string(&self.buf2, &mut self.buf) {
+            Ok(_) => {
+                if self.buf.is_empty() {
+                    "?"
+                } else {
+                    &self.buf
+                }
+            }
+            _ => "?",
+        };
+
+        write!(
+            self.relevant[i],
+            /* XXX: fix hardcoded length */
+            "{:>w$} {:1} {:>4} {:<55.55}{}",
+            taskid.1 .0,
+            MaybeSmart(ent.2, self.settings),
+            MaybeSmart(
+                Threshold {
+                    val: CPUPercentage(cpupc),
+                    med: CPUPercentage(40.0),
+                    high: CPUPercentage(60.0),
+                    crit: CPUPercentage(80.0),
+                },
+                self.settings
+            ),
+            cmdline,
+            newline
+        )
+        .unwrap();
+    }
 }
 
 impl<'a> StatBlock<'a> for TaskStats<'a> {
@@ -126,50 +237,22 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
 
     /* XXX: split off into smaller, more digestible fns */
     fn update(&mut self) {
+        /* Measure and store jiffies of each task in self.tasks */
         for t in self.tasks.values_mut() {
             t.3 = Stale(true);
         }
-
         let t = Instant::now();
-
-        for pid_path in std::fs::read_dir("/proc").unwrap() {
-            let pid_path = match pid_path {
-                Ok(p) => p,
-                _ => continue,
-            };
-
-            if !pid_path.file_type().unwrap().is_dir() {
-                continue;
-            }
-
-            let pid = match pid_path.file_name().to_str().unwrap().parse::<u32>() {
-                Ok(i) => PID(i),
-                _ => continue,
-            };
-
-            let mut ent = match self.tasks.get_mut(&pid) {
+        map_tasks(&mut self.buf, |taskid, stat| {
+            let mut ent = match self.tasks.get_mut(&taskid) {
                 Some(e) => e,
                 _ => {
                     let z = (Jiffies(0, t), Jiffies(0, t), State::Sleeping, Stale(false));
-                    self.tasks.insert(pid, z);
-                    self.tasks.get_mut(&pid).unwrap()
+                    self.tasks.insert(taskid, z);
+                    self.tasks.get_mut(&taskid).unwrap()
                 }
             };
 
-            /* XXX: don't stop there, branch into ./tasks/.../stat */
-            let mut pid_path = pid_path.path();
-            pid_path.push("stat");
-            match read_to_string(pid_path, &mut self.buf) {
-                Ok(_) => (),
-                _ => continue,
-            }
-
-            let mut stat = self
-                .buf
-                .rsplit_once(')')
-                .unwrap()
-                .1
-                .split_ascii_whitespace();
+            let mut stat = stat.rsplit_once(')').unwrap().1.split_ascii_whitespace();
 
             ent.2 = match stat.nth(0).unwrap() {
                 "S" => State::Sleeping,
@@ -187,10 +270,10 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
                 t,
             );
             ent.3 = Stale(false);
-        }
-
+        });
         self.tasks.retain(|_, t| t.3 == Stale(false));
 
+        /* Sort tasks by state/jiffies */
         self.sorted.clear();
         for (pid, task) in self.tasks.iter() {
             if task.0 .1 == task.1 .1 {
@@ -201,57 +284,14 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
                 .push((TaskSort(task.2, task.1 .0 - task.0 .0), *pid));
         }
 
-        let newline = MaybeSmart(Newline(), self.settings);
-        let w = self.settings.colwidth;
-        for s in self.relevant.iter_mut() {
-            s.clear();
-            let pid = match self.sorted.pop() {
-                Some((_, pid)) => pid,
-                _ => continue, /* out of tasks, clear remaining Strings */
+        /* Format the most important tasks */
+        for i in 0..self.relevant.len() {
+            self.relevant[i].clear();
+            let taskid = match self.sorted.pop() {
+                Some((_, t)) => t,
+                _ => continue, /* Out of tasks, keep clearing strings anyway */
             };
-            let ent = self.tasks.get(&pid).unwrap();
-            let cpupc = ((100000 * (ent.1 .0 - ent.0 .0)) as f32)
-                / self.user_hz
-                / ((ent.1 .1 - ent.0 .1).as_millis() as f32);
-            if cpupc < 1.0 {
-                /* Don't show tasks that barely use the CPU */
-                continue;
-            }
-
-            /* XXX: find better way to do this */
-            self.buf2.clear();
-            write!(self.buf2, "/proc/{}/cmdline", pid.0).unwrap();
-            /* XXX: this is very rough, format me better! */
-            let cmdline = match read_to_string(&self.buf2, &mut self.buf) {
-                Ok(_) => {
-                    if self.buf.is_empty() {
-                        "?"
-                    } else {
-                        &self.buf
-                    }
-                }
-                _ => "?",
-            };
-
-            write!(
-                s,
-                /* XXX: fix hardcoded length */
-                "{:>w$} {:1} {:>4} {:<55.55}{}",
-                pid.0,
-                MaybeSmart(ent.2, self.settings),
-                MaybeSmart(
-                    Threshold {
-                        val: CPUPercentage(cpupc),
-                        med: CPUPercentage(40.0),
-                        high: CPUPercentage(60.0),
-                        crit: CPUPercentage(80.0),
-                    },
-                    self.settings
-                ),
-                cmdline,
-                newline
-            )
-            .unwrap();
+            self.format_task(taskid, i);
         }
     }
 }
