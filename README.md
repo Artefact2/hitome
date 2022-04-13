@@ -10,7 +10,7 @@ resources. Think of it as a lighter, less featureful version of
 
 Released under the Apache License, version 2.0.
 
-![](./demo.gif)
+[![asciicast](https://asciinema.org/a/QtCO1B7cw59SdJVLgA9i1gCjy.svg)](https://asciinema.org/a/QtCO1B7cw59SdJVLgA9i1gCjy)
 
 Features
 ========
