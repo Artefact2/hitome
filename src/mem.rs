@@ -119,36 +119,38 @@ impl<'a> StatBlock<'a> for MemoryStats<'a> {
         for line in self.buf.lines() {
             let mut iter = line.split_ascii_whitespace();
             let k = iter.next().unwrap();
-            /* XXX: inefficient, we don't always need the parsed
-             * value, but it makes for more readable code */
-            let v = iter.next().unwrap().parse::<u64>().unwrap() * self.pagesize;
+            let mut val = || iter.next().unwrap().parse::<u64>().unwrap() * self.pagesize;
             match k {
-                "nr_active_anon" => s.active.0 += v,
+                "nr_active_anon" => s.active.0 += val(),
                 "nr_active_file" => {
+                    let v = val();
                     s.active.0 += v;
                     s.cached.0 += v
                 }
-                "nr_inactive_anon" => s.inactive.0 += v,
+                "nr_inactive_anon" => s.inactive.0 += val(),
                 "nr_inactive_file" => {
+                    let v = val();
                     s.inactive.0 += v;
                     s.cached.0 += v
                 }
-                "nr_slab_unreclaimable" => s.cached.0 += v,
-                "nr_slab_reclaimable" => s.cached.0 += v,
-                "nr_kernel_misc_reclaimable" => s.cached.0 += v,
+                "nr_slab_unreclaimable" => s.cached.0 += val(),
+                "nr_slab_reclaimable" => s.cached.0 += val(),
+                "nr_kernel_misc_reclaimable" => s.cached.0 += val(),
                 "nr_swapcached" => {
+                    let v = val();
                     s.cached.0 += v;
                     /* Swap is already filled, should be ok to substract without wrapping around */
                     s.swap.0 -= v;
                 }
-                "nr_free_pages" => s.free.0 = v,
-                "nr_dirty" => s.dirty.val.0 = v,
-                "nr_dirty_threshold" => s.dirty.crit.0 = v,
+                "nr_free_pages" => s.free.0 = val(),
+                "nr_dirty" => s.dirty.val.0 = val(),
+                "nr_dirty_threshold" => s.dirty.crit.0 = val(),
                 "nr_dirty_background_threshold" => {
+                    let v = val();
                     s.dirty.med.0 = v;
                     s.dirty.high.0 = v
                 }
-                "nr_writeback" => s.writeback.val.0 = v,
+                "nr_writeback" => s.writeback.val.0 = val(),
                 _ => continue,
             };
         }
