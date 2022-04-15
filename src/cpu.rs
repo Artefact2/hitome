@@ -14,6 +14,7 @@
  */
 
 use super::common::*;
+use std::collections::BTreeMap;
 use std::fmt;
 
 #[derive(Clone, Copy)]
@@ -47,7 +48,8 @@ impl fmt::Display for CpuUsage {
 
 pub struct CpuStats<'a> {
     settings: &'a Settings,
-    state: Vec<(CpuTicks, CpuTicks)>,
+    /* Use a BTreeMap to keep CPUs in a deterministic order */
+    state: BTreeMap<usize, (CpuTicks, CpuTicks, Stale)>,
     buf: String,
 }
 
@@ -55,7 +57,7 @@ impl<'a> StatBlock<'a> for CpuStats<'a> {
     fn new(s: &'a Settings) -> CpuStats {
         let mut cpu = CpuStats {
             settings: s,
-            state: Vec::new(),
+            state: Default::default(),
             buf: String::new(),
         };
         cpu.update();
@@ -66,48 +68,63 @@ impl<'a> StatBlock<'a> for CpuStats<'a> {
         /* /proc/stats never contains arbitrary user data */
         match unsafe { read_to_string_unchecked("/proc/stat", &mut self.buf) } {
             Ok(_) => (),
-            _ => return,
-        }
-
-        for (i, cpu) in self.buf.lines().skip(1).enumerate() {
-            let mut fields = cpu.split_ascii_whitespace();
-
-            if !fields.next().unwrap().starts_with("cpu") {
+            _ => {
+                self.state.clear();
                 return;
             }
+        }
 
-            if self.state.len() <= i {
-                let z = CpuTicks {
-                    user: 0,
-                    nice: 0,
-                    system: 0,
-                    iowait: 0,
-                    idle: 0,
-                    total: 0,
-                };
-                /* XXX: handle cases where CPUs go offline */
-                self.state.push((z, z));
-            } else {
-                self.state[i].0 = self.state[i].1;
-                self.state[i].1.total = 0;
+        for (_, s) in self.state.iter_mut() {
+            s.2 = Stale(true);
+        }
+
+        for cpu in self.buf.lines().skip(1) {
+            let mut fields = cpu.split_ascii_whitespace();
+
+            let cpuid = fields.next().unwrap();
+            if !cpuid.starts_with("cpu") {
+                break;
             }
+            let cpuid = cpuid.strip_prefix("cpu").unwrap().parse::<usize>().unwrap();
 
-            for (j, t) in fields.enumerate() {
-                let t = t.parse::<u64>().unwrap();
+            let mut ent = match self.state.get_mut(&cpuid) {
+                Some(ent) => ent,
+                _ => {
+                    let z = CpuTicks {
+                        user: 0,
+                        nice: 0,
+                        system: 0,
+                        iowait: 0,
+                        idle: 0,
+                        total: 0,
+                    };
+                    self.state.insert(cpuid, (z, z, Stale(false)));
+                    self.state.get_mut(&cpuid).unwrap()
+                }
+            };
+
+            ent.0 = ent.1;
+            ent.1.total = 0;
+            ent.2 = Stale(false);
+
+            for j in 0..=4 {
+                let t = fields.next().unwrap().parse::<u64>().unwrap();
 
                 /* https://docs.kernel.org/filesystems/proc.html#miscellaneous-kernel-statistics-in-proc-stat */
                 match j {
-                    0 => self.state[i].1.user = t,
-                    1 => self.state[i].1.nice = t,
-                    2 => self.state[i].1.system = t,
-                    3 => self.state[i].1.idle = t,
-                    4 => self.state[i].1.iowait = t,
-                    _ => (),
+                    0 => ent.1.user = t,
+                    1 => ent.1.nice = t,
+                    2 => ent.1.system = t,
+                    3 => ent.1.idle = t,
+                    4 => ent.1.iowait = t,
+                    _ => unreachable!(),
                 }
 
-                self.state[i].1.total += t;
+                ent.1.total += t;
             }
         }
+
+        self.state.retain(|_, s| s.2 == Stale(false));
     }
 }
 
@@ -119,20 +136,19 @@ impl<'a> fmt::Display for CpuStats<'a> {
 
         let newline = MaybeSmart(Newline(), self.settings);
 
-        ["IOWAIT", "SYSTEM", "USER", "NICE"].map(|cat| {
-            /* XXX: find way to pass through io::Errors */
-            write!(f, "{} ", MaybeSmart(Heading(cat), self.settings)).unwrap();
+        for cat in ["IOWAIT", "SYSTEM", "USER", "NICE"].iter() {
+            write!(f, "{} ", MaybeSmart(Heading(cat), self.settings))?;
 
             /* XXX: this doesn't feel like the best way */
-            let get = |c: CpuTicks| match cat {
+            let get = |c: CpuTicks| match *cat {
                 "IOWAIT" => c.iowait,
                 "SYSTEM" => c.system,
                 "USER" => c.user,
                 "NICE" => c.nice,
-                _ => panic!(),
+                _ => unreachable!(),
             };
 
-            for cpu in &self.state {
+            for (_, cpu) in self.state.iter() {
                 /* Set thresholds for colouring based on idle% */
                 let trs = match ((cpu.1.idle - cpu.0.idle) as f32)
                     / ((cpu.1.total - cpu.0.total) as f32)
@@ -161,8 +177,8 @@ impl<'a> fmt::Display for CpuStats<'a> {
                 .unwrap();
             }
 
-            write!(f, "{}", newline).unwrap();
-        });
+            write!(f, "{}", newline)?
+        }
 
         write!(f, "{}", newline)
     }
