@@ -19,13 +19,11 @@ use std::fmt;
 use std::time::Instant;
 
 #[derive(Clone, Copy)]
-struct RxBytes(Bytes);
-
-#[derive(Clone, Copy)]
-struct TxBytes(Bytes);
-
-#[derive(Clone, Copy)]
-struct IfaceStats(Instant, RxBytes, TxBytes);
+struct IfaceStats {
+    t: Instant,
+    rx: Bytes,
+    tx: Bytes,
+}
 
 pub struct NetworkStats<'a> {
     settings: &'a Settings,
@@ -69,7 +67,11 @@ impl<'a> StatBlock<'a> for NetworkStats<'a> {
             let mut ent = match self.ifaces.get_mut(kname) {
                 Some(v) => v,
                 _ => {
-                    let z = IfaceStats(t, RxBytes(Bytes(0)), TxBytes(Bytes(0)));
+                    let z = IfaceStats {
+                        t: t,
+                        rx: Bytes(0),
+                        tx: Bytes(0),
+                    };
                     self.ifaces
                         .insert(String::from(kname), (z, z, Stale(false)));
                     self.ifaces.get_mut(kname).unwrap()
@@ -77,11 +79,11 @@ impl<'a> StatBlock<'a> for NetworkStats<'a> {
             };
 
             ent.0 = ent.1;
-            ent.1 = IfaceStats(
-                t,
-                RxBytes(Bytes(dev.next().unwrap().parse::<u64>().unwrap())),
-                TxBytes(Bytes(dev.nth(7).unwrap().parse::<u64>().unwrap())),
-            );
+            ent.1 = IfaceStats {
+                t: t,
+                rx: Bytes(dev.next().unwrap().parse().unwrap()),
+                tx: Bytes(dev.nth(7).unwrap().parse().unwrap()),
+            };
             ent.2 = Stale(false);
         }
 
@@ -109,10 +111,9 @@ impl<'a> fmt::Display for NetworkStats<'a> {
         for (kname, s) in self.ifaces.iter() {
             /* From https://github.com/torvalds/linux/blob/master/include/uapi/linux/if_link.h, the
              * stats reported will wrap at either u32::MAX or (more likely) u64::MAX. */
-            let t = (s.1 .0 - s.0 .0).as_millis() as u64;
-            /* XXX: surely there's a way to avoid the dot hell */
-            let rx = Bytes(1000 * (s.1 .1 .0 .0.wrapping_sub(s.0 .1 .0 .0)) / t);
-            let tx = Bytes(1000 * (s.1 .2 .0 .0.wrapping_sub(s.0 .2 .0 .0)) / t);
+            let t = (s.1.t - s.0.t).as_millis() as u64;
+            let rx = Bytes(1000 * (s.1.rx.0.wrapping_sub(s.0.rx.0)) / t);
+            let tx = Bytes(1000 * (s.1.tx.0.wrapping_sub(s.0.tx.0)) / t);
             write!(f, "{:>w$.w$} {:>w$} {:>w$}{}", kname, rx, tx, newline)?
         }
 
