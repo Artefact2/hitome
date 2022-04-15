@@ -150,8 +150,7 @@ where
 #[derive(PartialEq, Eq)]
 pub struct Stale(pub bool);
 
-/// Read contents of a file, assuming it is valid utf-8 (most files in /proc are not exposed to user
-/// input)
+/// Read contents of a file, assuming it is valid UTF-8
 pub unsafe fn read_to_string_unchecked<P: AsRef<std::path::Path>>(
     p: P,
     s: &mut String,
@@ -161,12 +160,103 @@ pub unsafe fn read_to_string_unchecked<P: AsRef<std::path::Path>>(
     f.read_to_end(s.as_mut_vec())
 }
 
-/// Helper function similar to std::fs::read_to_string() that allows reusing the buffer
-/* XXX: don't panic on invalid utf8! this really matters for reading eg /proc/xxx/cmdline */
+/// Read contents of a file and mangle it into valid UTF-8
 pub fn read_to_string<P: AsRef<std::path::Path>>(p: P, s: &mut String) -> std::io::Result<usize> {
-    s.clear();
-    let mut f = File::open(p)?;
-    f.read_to_string(s)
+    const REPLACEMENT_CHAR: u8 = b'?';
+
+    fn check_byte(b: Option<&mut u8>) -> Option<&mut u8> {
+        match b {
+            Some(b) if *b <= 0b10111111 => Some(b),
+            Some(b) => {
+                *b = REPLACEMENT_CHAR;
+                None
+            }
+            _ => None,
+        }
+    }
+
+    unsafe {
+        let length = read_to_string_unchecked(p, s)?;
+        /* Now s may contain invalid UTF-8, iterate over the bytes and correct that to make a safe
+         * String */
+        /* XXX: would be nice to leverage String::from_utf8_lossy() or OsString::to_string_lossy(),
+         * but they don't work in-place so are not suited here */
+        let mut iter = s.as_mut_vec().iter_mut();
+        #[allow(clippy::while_let_on_iterator)]
+        while let Some(cp) = iter.next() {
+            /* This is very naive, probably buggy and slow */
+            /* https://doc.rust-lang.org/std/primitive.char.html#validity */
+
+            if *cp <= 0b01111111 {
+                /* Was an ASCII code point */
+                continue;
+            }
+
+            if *cp >= 0b11111000 {
+                /* Invalid leader */
+                *cp = REPLACEMENT_CHAR;
+                continue;
+            }
+
+            let a = match check_byte(iter.next()) {
+                Some(a) => a,
+                None => {
+                    *cp = REPLACEMENT_CHAR;
+                    continue;
+                }
+            };
+
+            if *cp < 0b11100000 {
+                /* Was a 2-byte sequence */
+                continue;
+            }
+
+            let b = match check_byte(iter.next()) {
+                Some(b) => b,
+                None => {
+                    *cp = REPLACEMENT_CHAR;
+                    *a = REPLACEMENT_CHAR;
+                    continue;
+                }
+            };
+
+            if *cp < 0b11110000 {
+                /* Was a 3-byte sequence */
+
+                /* Check for 0xD800..0xE000 codepoint */
+                let first_byte = ((*cp & 0b00001111) << 4) | ((*a & 0b00111100) >> 2);
+                if (0xD8..0xE0).contains(&first_byte) {
+                    *cp = REPLACEMENT_CHAR;
+                    *a = REPLACEMENT_CHAR;
+                    *b = REPLACEMENT_CHAR;
+                }
+
+                continue;
+            }
+
+            /* Is a 4-byte sequence */
+
+            let c = match check_byte(iter.next()) {
+                Some(c) => c,
+                None => {
+                    *cp = REPLACEMENT_CHAR;
+                    *a = REPLACEMENT_CHAR;
+                    *b = REPLACEMENT_CHAR;
+                    continue;
+                }
+            };
+
+            /* Check for 0x110000.. codepoint */
+            let first_byte = ((*cp & 0b00000111) << 2) | ((*a & 0b00110000) >> 4);
+            if first_byte >= 0x11 {
+                *cp = REPLACEMENT_CHAR;
+                *a = REPLACEMENT_CHAR;
+                *b = REPLACEMENT_CHAR;
+                *c = REPLACEMENT_CHAR;
+            }
+        }
+        Ok(length)
+    }
 }
 
 /// Merge two StatBlocks side by side, if the combined result fits in 80 columns or fewer. For each
