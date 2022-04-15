@@ -64,7 +64,8 @@ impl<'a> StatBlock<'a> for MemoryStats<'a> {
         s.swap.0 = 0;
         s.zram.0 = 0;
 
-        if read_to_string("/proc/swaps", &mut self.buf).is_ok() {
+        /* /proc/swaps doesn't contain arbitrary user data */
+        if unsafe { read_to_string_unchecked("/proc/swaps", &mut self.buf) }.is_ok() {
             for line in self.buf.lines().skip(1) {
                 s.swap.0 += line
                     .split_ascii_whitespace()
@@ -92,7 +93,8 @@ impl<'a> StatBlock<'a> for MemoryStats<'a> {
 
             let mut mm = bdev.path();
             mm.push("mm_stat");
-            if read_to_string(mm, &mut self.buf).is_ok() {
+            /* /sys/block/zramN/mm_stat only contains space separated numeric fields */
+            if unsafe { read_to_string_unchecked(mm, &mut self.buf) }.is_ok() {
                 /* https://docs.kernel.org/admin-guide/blockdev/zram.html */
                 s.zram.0 += self
                     .buf
@@ -104,7 +106,8 @@ impl<'a> StatBlock<'a> for MemoryStats<'a> {
             }
         }
 
-        match read_to_string("/proc/vmstat", &mut self.buf) {
+        /* No arbitrary strings in /proc/vmstat */
+        match unsafe { read_to_string_unchecked("/proc/vmstat", &mut self.buf) } {
             Ok(_) => (),
             _ => return,
         };

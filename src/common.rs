@@ -150,6 +150,17 @@ where
 #[derive(PartialEq, Eq)]
 pub struct Stale(pub bool);
 
+/// Read contents of a file, assuming it is valid utf-8 (most files in /proc are not exposed to user
+/// input)
+pub unsafe fn read_to_string_unchecked<P: AsRef<std::path::Path>>(
+    p: P,
+    s: &mut String,
+) -> std::io::Result<usize> {
+    s.clear();
+    let mut f = File::open(p)?;
+    f.read_to_end(s.as_mut_vec())
+}
+
 /// Helper function similar to std::fs::read_to_string() that allows reusing the buffer
 /* XXX: don't panic on invalid utf8! this really matters for reading eg /proc/xxx/cmdline */
 pub fn read_to_string<P: AsRef<std::path::Path>>(p: P, s: &mut String) -> std::io::Result<usize> {

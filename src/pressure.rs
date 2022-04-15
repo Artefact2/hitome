@@ -33,7 +33,8 @@ pub struct PressureStats<'a> {
 
 impl<'a> PressureStats<'a> {
     fn update_cat(pa: &str, buf: &mut String, pr: &mut Pressure) {
-        match read_to_string(pa, buf) {
+        /* /proc/pressure/(*) files can never contain invalid UTF-8 */
+        match unsafe { read_to_string_unchecked(pa, buf) } {
             Ok(_) => (),
             _ => return,
         }

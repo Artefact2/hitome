@@ -63,7 +63,8 @@ impl<'a> StatBlock<'a> for CpuStats<'a> {
     }
 
     fn update(&mut self) {
-        match read_to_string("/proc/stat", &mut self.buf) {
+        /* /proc/stats never contains arbitrary user data */
+        match unsafe { read_to_string_unchecked("/proc/stat", &mut self.buf) } {
             Ok(_) => (),
             _ => return,
         }
