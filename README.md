@@ -35,13 +35,16 @@ Usage
 
 ~~~
 % hitome --help
-Usage: hitome [-c <colour>] [-w <column-width>] [-i <refresh-interval>]
+Usage: hitome [-c <colour>] [--columns <columns>] [--rows <rows>] [-w <column-width>] [-i <refresh-interval>]
 
 A very simple, non-interactive system monitor
 
 Options:
   -c, --colour      true/false: use colour and other fancy escape sequences
                     (defaults to guessing based on $TERM)
+  --columns         width of the terminal window, in characters (if omitted,
+                    guess)
+  --rows            height of the terminal window, in lines (if omitted, guess)
   -w, --column-width
                     the width of columns, in characters
   -i, --refresh-interval

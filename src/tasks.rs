@@ -186,7 +186,7 @@ impl<'a> TaskStats<'a> {
     /// Format a task's line to self.relevant[i]
     fn format_task(&mut self, taskid: Pid, i: usize) {
         let newline = MaybeSmart(Newline(), self.settings);
-        let w = self.settings.colwidth;
+        let w = self.settings.colwidth.into();
 
         let ent = self.tasks.get(&taskid).unwrap();
         let cpupc = ((100000 * (ent.1 .0 - ent.0 .0)) as f32)
@@ -213,7 +213,7 @@ impl<'a> TaskStats<'a> {
         };
 
         /* Format the cmdline: skip path of argv[0], split args by spaces */
-        let max_length = 55; /* XXX: adjust this based on term/user pref */
+        let max_length = (self.settings.maxcols - self.settings.colwidth - 8).into();
         let mut cmdline = cmdline.split('\0');
         let progname = cmdline.next().unwrap_or("");
         let progname = match progname.rsplit_once('/') {

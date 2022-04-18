@@ -159,7 +159,7 @@ impl<'a> StatBlock<'a> for MemoryStats<'a> {
 
 impl<'a> fmt::Display for MemoryStats<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let w = self.settings.colwidth;
+        let w = self.settings.colwidth.into();
         let s = &self.state;
         let se = &self.settings;
         let newline = MaybeSmart(Newline(), se);

@@ -68,7 +68,7 @@ impl<'a> StatBlock<'a> for NetworkStats<'a> {
                 Some(v) => v,
                 _ => {
                     let z = IfaceStats {
-                        t: t,
+                        t,
                         rx: Bytes(0),
                         tx: Bytes(0),
                     };
@@ -80,7 +80,7 @@ impl<'a> StatBlock<'a> for NetworkStats<'a> {
 
             ent.0 = ent.1;
             ent.1 = IfaceStats {
-                t: t,
+                t,
                 rx: Bytes(dev.next().unwrap().parse().unwrap()),
                 tx: Bytes(dev.nth(7).unwrap().parse().unwrap()),
             };
@@ -98,7 +98,7 @@ impl<'a> fmt::Display for NetworkStats<'a> {
         }
 
         let newline = MaybeSmart(Newline(), self.settings);
-        let w = self.settings.colwidth;
+        let w = self.settings.colwidth.into();
         write!(
             f,
             "{} {} {}{}",

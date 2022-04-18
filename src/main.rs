@@ -41,15 +41,66 @@ macro_rules! update {
     }
 }
 
+struct TermDimensions {
+    rows: u16,
+    cols: u16,
+}
+
+fn get_term_dimensions() -> Option<TermDimensions> {
+    unsafe {
+        let mut w = std::mem::MaybeUninit::<libc::winsize>::uninit();
+        /* This isn't very portable, but neither is Hitome */
+        if libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, w.as_mut_ptr()) == 0 {
+            let w = w.assume_init();
+            return Some(TermDimensions {
+                rows: w.ws_row,
+                cols: w.ws_col,
+            });
+        }
+    }
+
+    /* As a fallback, get dimensions from the environment */
+    if let Some(lines) = std::env::var_os("LINES") {
+        if let Ok(lines) = lines.to_string_lossy().parse::<u16>() {
+            if let Some(columns) = std::env::var_os("COLUMNS") {
+                if let Ok(columns) = columns.to_string_lossy().parse::<u16>() {
+                    return Some(TermDimensions {
+                        rows: lines,
+                        cols: columns,
+                    });
+                }
+            }
+        }
+    }
+
+    None
+}
+
+fn update_term_dimensions(s: &mut Settings) {
+    if !s.auto_maxcols && !s.auto_maxrows {
+        return;
+    }
+
+    let termsize = get_term_dimensions().unwrap_or(TermDimensions { rows: 0, cols: 0 });
+    if s.auto_maxcols {
+        s.maxcols = termsize.cols.max(80);
+        s.colwidth = ((s.maxcols - 7) / 8).clamp(MIN_COL_WIDTH, 10);
+    }
+    if s.auto_maxrows {
+        s.maxrows = termsize.rows.max(24);
+    }
+}
+
 fn main() {
     if !cfg!(target_os = "linux") {
         eprintln!("Hitome only works by reading Linux-specific /proc interfaces, sorry.");
         return;
     }
 
-    let settings;
+    let mut settings;
     {
         let cli: Cli = argh::from_env();
+        if cli.columns == None || cli.rows == None {}
         settings = Settings {
             smart: cli
                 .colour
@@ -57,12 +108,18 @@ fn main() {
                     Some(val) => val != "dumb",
                     None => false,
                 }),
-            colwidth: cli.column_width,
+            auto_maxcols: cli.columns == None,
+            auto_maxrows: cli.rows == None,
+            maxcols: cli.columns.unwrap_or(0),
+            maxrows: cli.rows.unwrap_or(0),
+            colwidth: cli.column_width.unwrap_or(MIN_COL_WIDTH),
             refresh: cli.refresh_interval,
         };
         assert!(settings.colwidth >= MIN_COL_WIDTH);
         /* Let cli drop out of scope, it has lived its usefulness */
     }
+    /* XXX: update this in the main loop */
+    update_term_dimensions(&mut settings);
 
     /* Use ManuallyDrop to prevent flushing screen-clearing escape sequences, in case the program
      * crashes. This allows us to see Rust errors. */

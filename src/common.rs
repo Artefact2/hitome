@@ -19,7 +19,7 @@ use std::fmt::{Alignment, Display, Formatter, Result};
 use std::fs::File;
 use std::io::Read;
 
-pub const MIN_COL_WIDTH: usize = 8;
+pub const MIN_COL_WIDTH: u16 = 8;
 
 #[derive(FromArgs)]
 /// A very simple, non-interactive system monitor
@@ -28,9 +28,17 @@ pub struct Cli {
     /// true/false: use colour and other fancy escape sequences (defaults to guessing based on $TERM)
     pub colour: Option<bool>,
 
-    #[argh(option, short = 'w', default = "8")]
+    #[argh(option)]
+    /// width of the terminal window, in characters (if omitted, guess)
+    pub columns: Option<u16>,
+
+    #[argh(option)]
+    /// height of the terminal window, in lines (if omitted, guess)
+    pub rows: Option<u16>,
+
+    #[argh(option, short = 'w')]
     /// the width of columns, in characters
-    pub column_width: usize,
+    pub column_width: Option<u16>,
 
     #[argh(option, short = 'i', default = "2000")]
     /// refresh interval in milliseconds
@@ -39,8 +47,12 @@ pub struct Cli {
 
 pub struct Settings {
     pub smart: bool,
-    pub colwidth: usize,
+    pub colwidth: u16,
     pub refresh: u64,
+    pub auto_maxcols: bool,
+    pub auto_maxrows: bool,
+    pub maxcols: u16,
+    pub maxrows: u16,
 }
 
 pub trait StatBlock<'a> {
@@ -96,7 +108,7 @@ pub struct MaybeSmart<'a, T>(pub T, pub &'a Settings);
 
 impl<'a, 'b> Display for MaybeSmart<'a, Heading<'b>> {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        let w = f.width().unwrap_or(self.1.colwidth);
+        let w = f.width().unwrap_or_else(|| self.1.colwidth.into());
 
         /* XXX: is there a way to not repeat ourselves? */
         match (self.1.smart, f.align()) {
@@ -124,7 +136,7 @@ where
     T: Display + PartialOrd,
 {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        let w = f.width().unwrap_or(self.1.colwidth);
+        let w = f.width().unwrap_or_else(|| self.1.colwidth.into());
         let t = &self.0;
 
         if !self.1.smart {
@@ -319,11 +331,10 @@ where
         let widths = [&self.tbuf, &self.ubuf]
             .map(|s| ascii_term_printable_chars_len(s.lines().next().unwrap()));
         /* Round first width to line up columns */
-        let wfirst =
-            widths[0] + self.settings.colwidth - (widths[0] % (self.settings.colwidth + 1));
+        let wfirst = widths[0] + (self.settings.colwidth as usize)
+            - (widths[0] % ((self.settings.colwidth as usize) + 1));
 
-        /* XXX: make the 80 col limit user configurable and/or guess based on terminal */
-        if wfirst + 1 + widths[1] > 80 {
+        if wfirst + 1 + widths[1] > self.settings.maxcols.into() {
             /* Too wide, fall back to printing vertically */
             return write!(f, "{}{}", self.tbuf, self.ubuf);
         }

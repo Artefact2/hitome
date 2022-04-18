@@ -95,7 +95,7 @@ impl<'a> fmt::Display for PressureStats<'a> {
             return Ok(());
         }
 
-        let w = self.settings.colwidth;
+        let w = self.settings.colwidth.into();
         let s = self.settings;
         let newline = MaybeSmart(Newline(), s);
         write!(

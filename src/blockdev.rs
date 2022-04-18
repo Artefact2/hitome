@@ -112,7 +112,7 @@ impl<'a> fmt::Display for BlockDeviceStats<'a> {
         }
 
         let newline = MaybeSmart(Newline(), self.settings);
-        let w = self.settings.colwidth;
+        let w = self.settings.colwidth.into();
         write!(
             f,
             "{} {} {} {}{}",
