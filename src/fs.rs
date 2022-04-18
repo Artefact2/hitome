@@ -119,6 +119,22 @@ impl<'a> StatBlock<'a> for FilesystemStats<'a> {
 
         self.filesystems.retain(|_, v| v.2 == Stale(false))
     }
+
+    fn columns(&self) -> u16 {
+        if self.filesystems.is_empty() {
+            0
+        } else {
+            4 * self.settings.colwidth + 3
+        }
+    }
+
+    fn rows(&self) -> u16 {
+        if self.filesystems.is_empty() {
+            0
+        } else {
+            2 + self.filesystems.len() as u16
+        }
+    }
 }
 
 impl<'a> fmt::Display for FilesystemStats<'a> {

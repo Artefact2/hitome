@@ -126,6 +126,22 @@ impl<'a> StatBlock<'a> for CpuStats<'a> {
 
         self.state.retain(|_, s| s.2 == Stale(false));
     }
+
+    fn columns(&self) -> u16 {
+        if self.state.is_empty() {
+            0
+        } else {
+            self.settings.colwidth + 1 + self.state.len() as u16
+        }
+    }
+
+    fn rows(&self) -> u16 {
+        if self.state.is_empty() {
+            0
+        } else {
+            5
+        }
+    }
 }
 
 impl<'a> fmt::Display for CpuStats<'a> {

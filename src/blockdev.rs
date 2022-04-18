@@ -103,6 +103,22 @@ impl<'a> StatBlock<'a> for BlockDeviceStats<'a> {
 
         self.devices.retain(|_, v| v.2 == Stale(false));
     }
+
+    fn columns(&self) -> u16 {
+        if self.devices.is_empty() {
+            0
+        } else {
+            4 * self.settings.colwidth + 3
+        }
+    }
+
+    fn rows(&self) -> u16 {
+        if self.devices.is_empty() {
+            0
+        } else {
+            2 + self.devices.len() as u16
+        }
+    }
 }
 
 impl<'a> fmt::Display for BlockDeviceStats<'a> {

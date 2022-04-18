@@ -89,6 +89,22 @@ impl<'a> StatBlock<'a> for NetworkStats<'a> {
 
         self.ifaces.retain(|_, v| v.2 == Stale(false));
     }
+
+    fn columns(&self) -> u16 {
+        if self.ifaces.is_empty() {
+            0
+        } else {
+            3 * self.settings.colwidth + 2
+        }
+    }
+
+    fn rows(&self) -> u16 {
+        if self.ifaces.is_empty() {
+            0
+        } else {
+            2 + self.ifaces.len() as u16
+        }
+    }
 }
 
 impl<'a> fmt::Display for NetworkStats<'a> {

@@ -339,6 +339,22 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
             self.format_task(taskid, i);
         }
     }
+
+    fn columns(&self) -> u16 {
+        if self.relevant.is_empty() {
+            0
+        } else {
+            self.settings.maxcols
+        }
+    }
+
+    fn rows(&self) -> u16 {
+        if self.relevant.is_empty() {
+            0
+        } else {
+            1 + self.relevant.len() as u16
+        }
+    }
 }
 
 impl<'a> fmt::Display for TaskStats<'a> {

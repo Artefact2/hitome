@@ -19,6 +19,8 @@ use std::fmt::{Alignment, Display, Formatter, Result};
 use std::fs::File;
 use std::io::Read;
 
+const SMART_NEWLINE: &str = "\x1B[0K";
+
 #[derive(FromArgs)]
 /// A very simple, non-interactive system monitor
 pub struct Cli {
@@ -56,6 +58,11 @@ pub struct Settings {
 pub trait StatBlock<'a> {
     fn new(s: &'a Settings) -> Self;
     fn update(&mut self);
+
+    /// The width of any non-empty line that would be printed if this block were Displayed
+    fn columns(&self) -> u16;
+    /// The number of lines that would be printed if this block were Displayed
+    fn rows(&self) -> u16;
 }
 
 #[derive(PartialEq, PartialOrd, Clone, Copy)]
@@ -124,7 +131,7 @@ impl<'a> Display for MaybeSmart<'a, Newline> {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match self.1.smart {
             false => writeln!(f),
-            true => writeln!(f, "\x1B[0K"),
+            true => writeln!(f, "{}", SMART_NEWLINE),
         }
     }
 }
@@ -285,6 +292,24 @@ where
 }
 
 /* XXX: is there a way to not repeat where clauses in every impl? */
+impl<'a, T, U> MergedStatBlock<'a, T, U>
+where
+    T: StatBlock<'a> + Display,
+    U: StatBlock<'a> + Display,
+{
+    fn pad_length_to_columns(&self, len: u16) -> u16 {
+        if len > 0 {
+            len + self.settings.colwidth - len % (self.settings.colwidth + 1)
+        } else {
+            0
+        }
+    }
+
+    fn can_merge(&self) -> bool {
+        self.pad_length_to_columns(self.t.columns()) + self.u.columns() < self.settings.maxcols
+    }
+}
+
 impl<'a, T, U> StatBlock<'a> for MergedStatBlock<'a, T, U>
 where
     T: StatBlock<'a> + Display,
@@ -311,6 +336,28 @@ where
         self.ubuf.clear();
         write!(self.ubuf, "{}", self.u).unwrap()
     }
+
+    fn columns(&self) -> u16 {
+        let tc = self.t.columns();
+        let tu = self.u.columns();
+
+        /* Space separator only needed if t and u print something */
+        if self.can_merge() && tc > 0 && tu > 0 {
+            self.pad_length_to_columns(tc) + tu + 1
+        } else {
+            tc.max(tu)
+        }
+    }
+
+    fn rows(&self) -> u16 {
+        if self.can_merge() {
+            self.t.rows().max(self.u.rows())
+        } else {
+            /* If t or u prints nothing, we can merge; control flow reaches here only if t and u
+             * print something, so the newline separator is always there */
+            self.t.rows() + self.u.rows() + 1
+        }
+    }
 }
 
 impl<'a, T, U> Display for MergedStatBlock<'a, T, U>
@@ -326,68 +373,40 @@ where
             return write!(f, "{}", self.tbuf);
         }
 
-        let widths = [&self.tbuf, &self.ubuf]
-            .map(|s| ascii_term_printable_chars_len(s.lines().next().unwrap()));
-        /* Round first width to line up columns */
-        let wfirst = widths[0] + (self.settings.colwidth as usize)
-            - (widths[0] % ((self.settings.colwidth as usize) + 1));
-
-        if wfirst + 1 + widths[1] > self.settings.maxcols.into() {
-            /* Too wide, fall back to printing vertically */
+        if !self.can_merge() {
             return write!(f, "{}{}", self.tbuf, self.ubuf);
         }
 
+        let tc = self.t.columns();
+        let uc = self.u.columns() as usize;
+        let tc_padded = self.pad_length_to_columns(tc) as usize;
+        let padding = tc_padded - tc as usize;
         let newline = MaybeSmart(Newline(), self.settings);
         let mut iters = (self.tbuf.lines(), self.ubuf.lines());
         loop {
-            match (iters.0.next(), iters.1.next()) {
-                (Some(a), Some(b)) => write!(
-                    f,
-                    "{:len$} {}{}",
-                    a,
-                    b,
-                    newline,
-                    len = wfirst + a.len() - ascii_term_printable_chars_len(a),
-                )?,
-                (None, Some(b)) => write!(f, "{:wfirst$} {}{}", "", b, newline)?,
-                (Some(a), None) => write!(f, "{}{}", a, newline)?,
-                _ => break,
+            let a = iters.0.next();
+            let b = iters.1.next();
+
+            if a == None && b == None {
+                break;
+            }
+
+            let a = a.unwrap_or("");
+            let b = b.unwrap_or("");
+
+            /* Make sure we always print lines .columns() characters long */
+            if a.is_empty() || a == SMART_NEWLINE {
+                write!(f, "{:tc_padded$} ", "")?
+            } else {
+                write!(f, "{}{:padding$} ", a, "")?
+            }
+
+            if b.is_empty() || b == SMART_NEWLINE {
+                write!(f, "{:uc$}{}", "", newline)?
+            } else {
+                write!(f, "{}{}", b, newline)?
             }
         }
         Ok(())
     }
-}
-
-/// Length of a string, minus unprintable characters (eg terminal escape sequences)
-/// Will panic if fed non-ASCII stuff
-/// XXX: probably can be rewritten much more simply
-fn ascii_term_printable_chars_len(s: &str) -> usize {
-    let mut i = 0;
-    let mut iter = s.chars();
-    /* Shut up, clippy, we *do* need a while let, because we have to call .next() sometimes inside
-     * the loop */
-    #[allow(clippy::while_let_on_iterator)]
-    while let Some(c) = iter.next() {
-        if !c.is_ascii() {
-            unimplemented!();
-        }
-
-        /* https://en.wikipedia.org/wiki/ANSI_escape_code#Description */
-        if c == '\x1B' {
-            let c = iter.next().unwrap();
-            if c == '[' {
-                /* Gobble up ESC [ (...) 0x40..=0x7E */
-                while let Some(c) = iter.next() {
-                    if ('\x40'..='\x7E').contains(&c) {
-                        break;
-                    }
-                }
-            } else {
-                unimplemented!();
-            }
-        } else if !c.is_ascii_control() {
-            i += 1
-        }
-    }
-    i
 }

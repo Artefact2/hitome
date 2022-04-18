@@ -86,6 +86,22 @@ impl<'a> StatBlock<'a> for PressureStats<'a> {
         PressureStats::update_cat("/proc/pressure/memory", &mut self.buf, &mut self.memory);
         PressureStats::update_cat("/proc/pressure/io", &mut self.buf, &mut self.io);
     }
+
+    fn columns(&self) -> u16 {
+        if self.buf.is_empty() {
+            0
+        } else {
+            7 * self.settings.colwidth + 6
+        }
+    }
+
+    fn rows(&self) -> u16 {
+        if self.buf.is_empty() {
+            0
+        } else {
+            5
+        }
+    }
 }
 
 impl<'a> fmt::Display for PressureStats<'a> {

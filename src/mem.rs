@@ -155,6 +155,14 @@ impl<'a> StatBlock<'a> for MemoryStats<'a> {
             };
         }
     }
+
+    fn columns(&self) -> u16 {
+        8 * self.settings.colwidth + 7
+    }
+
+    fn rows(&self) -> u16 {
+        3
+    }
 }
 
 impl<'a> fmt::Display for MemoryStats<'a> {
