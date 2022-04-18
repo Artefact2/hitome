@@ -168,7 +168,7 @@ where
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub struct Stale(pub bool);
 
 /// Read contents of a file, assuming it is valid UTF-8

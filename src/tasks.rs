@@ -120,6 +120,7 @@ impl<'a, 'b> fmt::Display for MaybeSmart<'a, CommandLine<'b>> {
     }
 }
 
+#[derive(Clone, Copy)]
 struct TaskEntry(Jiffies, Jiffies, TaskState, Stale);
 
 pub struct TaskStats<'a> {
@@ -191,7 +192,7 @@ impl<'a> TaskStats<'a> {
     /* XXX: we don't really need to mutate self, we just need an output String, but the borrow
      * checker won't let us */
     /// Format a task's line to self.relevant[i]
-    fn format_task(&mut self, taskid: Pid, i: usize) {
+    fn format_task(&mut self, taskid: Pid, ent: TaskEntry, i: usize) {
         /* XXX: find better way to do this */
         self.buf2.clear();
         write!(self.buf2, "/proc/{}/task/{}/cmdline", taskid.0, taskid.0).unwrap();
@@ -236,7 +237,6 @@ impl<'a> TaskStats<'a> {
 
         let newline = MaybeSmart(Newline(), self.settings);
         let w = self.settings.colwidth.get().into();
-        let ent = self.tasks.get(&taskid).unwrap();
         let cpupc = ((100000 * (ent.1 .0 - ent.0 .0)) as f32)
             / self.user_hz
             / ((ent.1 .1 - ent.0 .1).as_millis() as f32);
@@ -350,13 +350,15 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
                 Some((_, t)) => t,
                 _ => break,
             };
-            /* XXX: can we passthrough ent to format_task() to avoid the double lookup? */
             let ent = self.tasks.get(&taskid).unwrap();
             if ent.1 .0 == ent.0 .0 {
                 /* Ran out of tasks that used a single jiffy */
                 break;
             }
-            self.format_task(taskid, i);
+            /* Give a copy of the data to avoid looking it up a second time. Is this really worth
+             * it? Maybe just use a BTreeMap<_, Cell<TaskEntry>> instead? */
+            let copy = *ent;
+            self.format_task(taskid, copy, i);
         }
     }
 
