@@ -120,6 +120,8 @@ impl<'a, 'b> fmt::Display for MaybeSmart<'a, CommandLine<'b>> {
     }
 }
 
+struct TaskEntry(Jiffies, Jiffies, TaskState, Stale);
+
 pub struct TaskStats<'a> {
     settings: &'a Settings,
     /// How many jiffies in a second, as exposed to userspace
@@ -127,7 +129,7 @@ pub struct TaskStats<'a> {
     buf: String,
     buf2: String,
     buf3: String,
-    tasks: HashMap<Pid, (Jiffies, Jiffies, TaskState, Stale)>,
+    tasks: HashMap<Pid, TaskEntry>,
     /// Used to sort tasks by their State/CPU%. Pushing is O(1) and popping is O(log n). Pushing all
     /// the tasks and popping the 10 highest is only O(n + 10 log n) instead of sorting which is O(n
     /// log n).
@@ -190,18 +192,6 @@ impl<'a> TaskStats<'a> {
      * checker won't let us */
     /// Format a task's line to self.relevant[i]
     fn format_task(&mut self, taskid: Pid, i: usize) {
-        let newline = MaybeSmart(Newline(), self.settings);
-        let w = self.settings.colwidth.into();
-
-        let ent = self.tasks.get(&taskid).unwrap();
-        let cpupc = ((100000 * (ent.1 .0 - ent.0 .0)) as f32)
-            / self.user_hz
-            / ((ent.1 .1 - ent.0 .1).as_millis() as f32);
-        if cpupc < 1.0 {
-            /* Don't show tasks that barely use the CPU */
-            return;
-        }
-
         /* XXX: find better way to do this */
         self.buf2.clear();
         write!(self.buf2, "/proc/{}/task/{}/cmdline", taskid.0, taskid.0).unwrap();
@@ -243,6 +233,13 @@ impl<'a> TaskStats<'a> {
                 },
             }
         }
+
+        let newline = MaybeSmart(Newline(), self.settings);
+        let w = self.settings.colwidth.into();
+        let ent = self.tasks.get(&taskid).unwrap();
+        let cpupc = ((100000 * (ent.1 .0 - ent.0 .0)) as f32)
+            / self.user_hz
+            / ((ent.1 .1 - ent.0 .1).as_millis() as f32);
 
         write!(
             self.relevant[i],
@@ -292,7 +289,7 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
             let mut ent = match self.tasks.get_mut(&taskid) {
                 Some(e) => e,
                 _ => {
-                    let z = (
+                    let z = TaskEntry(
                         Jiffies(0, t),
                         Jiffies(0, t),
                         TaskState::Sleeping,
@@ -353,8 +350,13 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
                 Some((_, t)) => t,
                 _ => break,
             };
+            /* XXX: can we passthrough ent to format_task() to avoid the double lookup? */
             let ent = self.tasks.get(&taskid).unwrap();
-            self.format_task(taskid, ent, i);
+            if ent.1 .0 == ent.0 .0 {
+                /* Ran out of tasks that used a single jiffy */
+                break;
+            }
+            self.format_task(taskid, i);
         }
     }
 
