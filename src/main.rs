@@ -150,7 +150,14 @@ fn main() {
             writeln!(w, "----------").unwrap();
         }
 
-        update!(mem, psi, cpu_net, bdev_fs, tasks);
+        update!(mem, psi, cpu_net, bdev_fs);
+        let remaining_rows = settings.maxrows as i16
+            - mem.rows() as i16
+            - psi.rows() as i16
+            - cpu_net.rows() as i16
+            - bdev_fs.rows() as i16;
+        tasks.set_max_tasks(remaining_rows.min(5) as u16);
+        update!(tasks);
         write!(w, "{}{}{}{}{}", mem, psi, cpu_net, bdev_fs, tasks).unwrap();
 
         if settings.smart {

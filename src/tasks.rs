@@ -132,8 +132,9 @@ pub struct TaskStats<'a> {
     /// the tasks and popping the 10 highest is only O(n + 10 log n) instead of sorting which is O(n
     /// log n).
     sorted: BinaryHeap<(TaskSort, Pid)>,
-    /// XXX: make the number of tasks user-configurable and/or guess based on terminal lines
-    relevant: [String; 10],
+    relevant: Vec<String>,
+    /// How many tasks we can print
+    maxtasks: u16,
 }
 
 /// Walk /proc and call the closure for each task, eg /proc/X/task/Y. Skips invalid files instead of
@@ -181,6 +182,10 @@ where
 }
 
 impl<'a> TaskStats<'a> {
+    pub fn set_max_tasks(&mut self, tasks: u16) {
+        self.maxtasks = tasks;
+    }
+
     /* XXX: we don't really need to mutate self, we just need an output String, but the borrow
      * checker won't let us */
     /// Format a task's line to self.relevant[i]
@@ -271,6 +276,7 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
             tasks: HashMap::new(),
             sorted: BinaryHeap::new(),
             relevant: Default::default(),
+            maxtasks: 10,
         };
         ts.update();
         ts
@@ -329,31 +335,35 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
                 .push((TaskSort(task.2, task.1 .0 - task.0 .0), *pid));
         }
 
+        for s in self.relevant.iter_mut() {
+            s.clear();
+        }
+        if (self.relevant.len() as u16) < self.maxtasks {
+            let n = self.maxtasks as usize - self.relevant.len();
+            self.relevant.reserve(n);
+            for _ in 0..n {
+                self.relevant
+                    .push(String::with_capacity(self.settings.maxcols as usize));
+            }
+        }
+
         /* Format the most important tasks */
-        for i in 0..self.relevant.len() {
-            self.relevant[i].clear();
+        for i in 0..(self.maxtasks as usize) {
             let taskid = match self.sorted.pop() {
                 Some((_, t)) => t,
-                _ => continue, /* Out of tasks, keep clearing strings anyway */
+                _ => break,
             };
-            self.format_task(taskid, i);
+            let ent = self.tasks.get(&taskid).unwrap();
+            self.format_task(taskid, ent, i);
         }
     }
 
     fn columns(&self) -> u16 {
-        if self.relevant.is_empty() {
-            0
-        } else {
-            self.settings.maxcols
-        }
+        self.settings.maxcols
     }
 
     fn rows(&self) -> u16 {
-        if self.relevant.is_empty() {
-            0
-        } else {
-            1 + self.relevant.len() as u16
-        }
+        1 + self.maxtasks
     }
 }
 
