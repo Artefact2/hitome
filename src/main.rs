@@ -34,6 +34,10 @@ mod network;
 mod pressure;
 mod tasks;
 
+const MIN_COL_WIDTH: u16 = 8;
+const MIN_COLUMNS: u16 = 8 * MIN_COL_WIDTH + 7;
+const MIN_ROWS: u16 = 24;
+
 /// A function-like macro that .update()s all of its arguments
 macro_rules! update {
     ($( $x:expr ),*) => {
@@ -83,11 +87,11 @@ fn update_term_dimensions(s: &mut Settings) {
 
     let termsize = get_term_dimensions().unwrap_or(TermDimensions { rows: 0, cols: 0 });
     if s.auto_maxcols {
-        s.maxcols = termsize.cols.max(80);
+        s.maxcols = termsize.cols.max(MIN_COLUMNS);
         s.colwidth = ((s.maxcols - 7) / 8).clamp(MIN_COL_WIDTH, 10);
     }
     if s.auto_maxrows {
-        s.maxrows = termsize.rows.max(24);
+        s.maxrows = termsize.rows.max(MIN_ROWS);
     }
 }
 
@@ -120,6 +124,8 @@ fn main() {
     }
     /* XXX: update this in the main loop */
     update_term_dimensions(&mut settings);
+    assert!(settings.maxcols >= MIN_COLUMNS);
+    assert!(settings.maxrows >= MIN_ROWS);
 
     /* Use ManuallyDrop to prevent flushing screen-clearing escape sequences, in case the program
      * crashes. This allows us to see Rust errors. */

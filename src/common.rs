@@ -19,8 +19,6 @@ use std::fmt::{Alignment, Display, Formatter, Result};
 use std::fs::File;
 use std::io::Read;
 
-pub const MIN_COL_WIDTH: u16 = 8;
-
 #[derive(FromArgs)]
 /// A very simple, non-interactive system monitor
 pub struct Cli {
