@@ -14,6 +14,7 @@
  */
 
 use argh::FromArgs;
+use std::cell::Cell;
 use std::cmp::Ordering;
 use std::fmt::{Alignment, Display, Formatter, Result};
 use std::fs::File;
@@ -47,12 +48,15 @@ pub struct Cli {
 
 pub struct Settings {
     pub smart: bool,
-    pub colwidth: u16,
     pub refresh: u64,
+    pub auto_colwidth: bool,
     pub auto_maxcols: bool,
     pub auto_maxrows: bool,
-    pub maxcols: u16,
-    pub maxrows: u16,
+    /* These settings can change at runtime, usage of a Cell required to provide interior
+     * mutability */
+    pub maxcols: Cell<u16>,
+    pub maxrows: Cell<u16>,
+    pub colwidth: Cell<u16>,
 }
 
 pub trait StatBlock<'a> {
@@ -113,7 +117,7 @@ pub struct MaybeSmart<'a, T>(pub T, pub &'a Settings);
 
 impl<'a, 'b> Display for MaybeSmart<'a, Heading<'b>> {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        let w = f.width().unwrap_or_else(|| self.1.colwidth.into());
+        let w = f.width().unwrap_or_else(|| self.1.colwidth.get().into());
 
         /* XXX: is there a way to not repeat ourselves? */
         match (self.1.smart, f.align()) {
@@ -141,7 +145,7 @@ where
     T: Display + PartialOrd,
 {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        let w = f.width().unwrap_or_else(|| self.1.colwidth.into());
+        let w = f.width().unwrap_or_else(|| self.1.colwidth.get().into());
         let t = &self.0;
 
         if !self.1.smart {
@@ -299,14 +303,15 @@ where
 {
     fn pad_length_to_columns(&self, len: u16) -> u16 {
         if len > 0 {
-            len + self.settings.colwidth - len % (self.settings.colwidth + 1)
+            len + self.settings.colwidth.get() - len % (self.settings.colwidth.get() + 1)
         } else {
             0
         }
     }
 
     fn can_merge(&self) -> bool {
-        self.pad_length_to_columns(self.t.columns()) + self.u.columns() < self.settings.maxcols
+        self.pad_length_to_columns(self.t.columns()) + self.u.columns()
+            < self.settings.maxcols.get()
     }
 }
 

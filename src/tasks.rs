@@ -208,7 +208,7 @@ impl<'a> TaskStats<'a> {
         };
 
         /* Format the cmdline: skip path of argv[0], split args by spaces */
-        let max_length = (self.settings.maxcols - self.settings.colwidth - 8).into();
+        let max_length = (self.settings.maxcols.get() - self.settings.colwidth.get() - 8).into();
         let mut cmdline = cmdline.split('\0');
         let progname = cmdline.next().unwrap_or("");
         let progname = match progname.rsplit_once('/') {
@@ -235,7 +235,7 @@ impl<'a> TaskStats<'a> {
         }
 
         let newline = MaybeSmart(Newline(), self.settings);
-        let w = self.settings.colwidth.into();
+        let w = self.settings.colwidth.get().into();
         let ent = self.tasks.get(&taskid).unwrap();
         let cpupc = ((100000 * (ent.1 .0 - ent.0 .0)) as f32)
             / self.user_hz
@@ -340,7 +340,7 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
             self.relevant.reserve(n);
             for _ in 0..n {
                 self.relevant
-                    .push(String::with_capacity(self.settings.maxcols as usize));
+                    .push(String::with_capacity(self.settings.maxcols.get() as usize));
             }
         }
 
@@ -361,7 +361,7 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
     }
 
     fn columns(&self) -> u16 {
-        self.settings.maxcols
+        self.settings.maxcols.get()
     }
 
     fn rows(&self) -> u16 {

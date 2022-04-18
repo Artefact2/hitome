@@ -124,7 +124,7 @@ impl<'a> StatBlock<'a> for FilesystemStats<'a> {
         if self.filesystems.is_empty() {
             0
         } else {
-            4 * self.settings.colwidth + 3
+            4 * self.settings.colwidth.get() + 3
         }
     }
 
@@ -144,7 +144,7 @@ impl<'a> fmt::Display for FilesystemStats<'a> {
         }
 
         let newline = MaybeSmart(Newline(), self.settings);
-        let w = self.settings.colwidth.into();
+        let w = self.settings.colwidth.get().into();
         write!(
             f,
             "{} {} {} {}{}",

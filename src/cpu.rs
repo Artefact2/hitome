@@ -131,7 +131,7 @@ impl<'a> StatBlock<'a> for CpuStats<'a> {
         if self.state.is_empty() {
             0
         } else {
-            self.settings.colwidth + 1 + self.state.len() as u16
+            self.settings.colwidth.get() + 1 + self.state.len() as u16
         }
     }
 

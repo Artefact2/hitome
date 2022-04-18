@@ -91,7 +91,7 @@ impl<'a> StatBlock<'a> for PressureStats<'a> {
         if self.buf.is_empty() {
             0
         } else {
-            7 * self.settings.colwidth + 6
+            7 * self.settings.colwidth.get() + 6
         }
     }
 
@@ -111,7 +111,7 @@ impl<'a> fmt::Display for PressureStats<'a> {
             return Ok(());
         }
 
-        let w = self.settings.colwidth.into();
+        let w = self.settings.colwidth.get().into();
         let s = self.settings;
         let newline = MaybeSmart(Newline(), s);
         write!(

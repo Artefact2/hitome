@@ -94,7 +94,7 @@ impl<'a> StatBlock<'a> for NetworkStats<'a> {
         if self.ifaces.is_empty() {
             0
         } else {
-            3 * self.settings.colwidth + 2
+            3 * self.settings.colwidth.get() + 2
         }
     }
 
@@ -114,7 +114,7 @@ impl<'a> fmt::Display for NetworkStats<'a> {
         }
 
         let newline = MaybeSmart(Newline(), self.settings);
-        let w = self.settings.colwidth.into();
+        let w = self.settings.colwidth.get().into();
         write!(
             f,
             "{} {} {}{}",

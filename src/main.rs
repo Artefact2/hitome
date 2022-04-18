@@ -21,6 +21,7 @@ use crate::mem::MemoryStats;
 use crate::network::NetworkStats;
 use crate::pressure::PressureStats;
 use crate::tasks::TaskStats;
+use std::cell::Cell;
 use std::io::{self, BufWriter, Write};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -80,18 +81,21 @@ fn get_term_dimensions() -> Option<TermDimensions> {
     None
 }
 
-fn update_term_dimensions(s: &mut Settings) {
+fn update_term_dimensions(s: &Settings) {
     if !s.auto_maxcols && !s.auto_maxrows {
         return;
     }
 
     let termsize = get_term_dimensions().unwrap_or(TermDimensions { rows: 0, cols: 0 });
     if s.auto_maxcols {
-        s.maxcols = termsize.cols.max(MIN_COLUMNS);
-        s.colwidth = ((s.maxcols - 7) / 8).clamp(MIN_COL_WIDTH, 10);
+        s.maxcols.set(termsize.cols.max(MIN_COLUMNS));
+        if s.auto_colwidth {
+            s.colwidth
+                .set(((s.maxcols.get() - 7) / 8).clamp(MIN_COL_WIDTH, 10));
+        }
     }
     if s.auto_maxrows {
-        s.maxrows = termsize.rows.max(MIN_ROWS);
+        s.maxrows.set(termsize.rows.max(MIN_ROWS));
     }
 }
 
@@ -101,7 +105,7 @@ fn main() {
         return;
     }
 
-    let mut settings;
+    let settings;
     {
         let cli: Cli = argh::from_env();
         if cli.columns == None || cli.rows == None {}
@@ -114,18 +118,14 @@ fn main() {
                 }),
             auto_maxcols: cli.columns == None,
             auto_maxrows: cli.rows == None,
-            maxcols: cli.columns.unwrap_or(0),
-            maxrows: cli.rows.unwrap_or(0),
-            colwidth: cli.column_width.unwrap_or(MIN_COL_WIDTH),
+            auto_colwidth: cli.column_width == None,
+            maxcols: Cell::new(cli.columns.unwrap_or(0)),
+            maxrows: Cell::new(cli.rows.unwrap_or(0)),
+            colwidth: Cell::new(cli.column_width.unwrap_or(0)),
             refresh: cli.refresh_interval,
         };
-        assert!(settings.colwidth >= MIN_COL_WIDTH);
         /* Let cli drop out of scope, it has lived its usefulness */
     }
-    /* XXX: update this in the main loop */
-    update_term_dimensions(&mut settings);
-    assert!(settings.maxcols >= MIN_COLUMNS);
-    assert!(settings.maxrows >= MIN_ROWS);
 
     /* Use ManuallyDrop to prevent flushing screen-clearing escape sequences, in case the program
      * crashes. This allows us to see Rust errors. */
@@ -143,6 +143,11 @@ fn main() {
     loop {
         let t = Instant::now();
 
+        update_term_dimensions(&settings);
+        assert!(settings.maxcols.get() >= MIN_COLUMNS);
+        assert!(settings.maxrows.get() >= MIN_ROWS);
+        assert!(settings.colwidth.get() >= MIN_COL_WIDTH);
+
         if settings.smart {
             /* Move cursor to top-left */
             write!(w, "\x1B[1;1H\x1B[0J").unwrap();
@@ -151,7 +156,7 @@ fn main() {
         }
 
         update!(mem, psi, cpu_net, bdev_fs);
-        let remaining_rows = settings.maxrows as i16
+        let remaining_rows = settings.maxrows.get() as i16
             - mem.rows() as i16
             - psi.rows() as i16
             - cpu_net.rows() as i16

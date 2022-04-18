@@ -157,7 +157,7 @@ impl<'a> StatBlock<'a> for MemoryStats<'a> {
     }
 
     fn columns(&self) -> u16 {
-        8 * self.settings.colwidth + 7
+        8 * self.settings.colwidth.get() + 7
     }
 
     fn rows(&self) -> u16 {
@@ -167,7 +167,7 @@ impl<'a> StatBlock<'a> for MemoryStats<'a> {
 
 impl<'a> fmt::Display for MemoryStats<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let w = self.settings.colwidth.into();
+        let w = self.settings.colwidth.get().into();
         let s = &self.state;
         let se = &self.settings;
         let newline = MaybeSmart(Newline(), se);
