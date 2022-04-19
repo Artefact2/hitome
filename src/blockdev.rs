@@ -141,6 +141,10 @@ impl<'a> fmt::Display for BlockDeviceStats<'a> {
 
         for (kname, s) in self.devices.iter() {
             let t = (s.1 .0 - s.0 .0).as_millis() as u64;
+            if t == 0 {
+                /* Device was just added */
+                continue;
+            }
             /* XXX ugly syntax */
             let rd = Bytes(1000 * (s.1 .1 .0 .0 - s.0 .1 .0 .0) / t);
             let wt = Bytes(1000 * (s.1 .2 .0 .0 - s.0 .2 .0 .0) / t);
