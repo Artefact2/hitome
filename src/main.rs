@@ -97,6 +97,10 @@ fn update_term_dimensions(s: &Settings) {
     if s.auto_maxrows {
         s.maxrows.set(termsize.rows.max(MIN_ROWS));
     }
+
+    assert!(s.maxcols.get() >= MIN_COLUMNS);
+    assert!(s.maxrows.get() >= MIN_ROWS);
+    assert!(s.colwidth.get() >= MIN_COL_WIDTH);
 }
 
 fn main() {
@@ -124,6 +128,7 @@ fn main() {
             colwidth: Cell::new(cli.column_width.unwrap_or(0)),
             refresh: cli.refresh_interval,
         };
+        update_term_dimensions(&settings);
         /* Let cli drop out of scope, it has lived its usefulness */
     }
 
@@ -143,11 +148,6 @@ fn main() {
     loop {
         let t = Instant::now();
 
-        update_term_dimensions(&settings);
-        assert!(settings.maxcols.get() >= MIN_COLUMNS);
-        assert!(settings.maxrows.get() >= MIN_ROWS);
-        assert!(settings.colwidth.get() >= MIN_COL_WIDTH);
-
         if settings.smart {
             /* Move cursor to top-left */
             write!(w, "\x1B[1;1H\x1B[0J").unwrap();
@@ -155,6 +155,7 @@ fn main() {
             writeln!(w, "----------").unwrap();
         }
 
+        update_term_dimensions(&settings);
         update!(mem, psi, cpu_net, bdev_fs);
         let remaining_rows = settings.maxrows.get() as i16
             - mem.rows() as i16
