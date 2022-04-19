@@ -19,16 +19,13 @@ use std::fmt;
 use std::time::Instant;
 
 #[derive(Clone, Copy)]
-struct ReadBytes(Bytes);
-
-#[derive(Clone, Copy)]
-struct WrittenBytes(Bytes);
-
-#[derive(Clone, Copy)]
-struct WeighedRequestTime(u64);
-
-#[derive(Clone, Copy)]
-struct DevStats(Instant, ReadBytes, WrittenBytes, WeighedRequestTime);
+struct DevStats {
+    t: Instant,
+    read: Bytes,
+    written: Bytes,
+    /// Weighed request time
+    wrt: u64,
+}
 
 const SECTOR_SIZE: u64 = 512;
 
@@ -84,12 +81,12 @@ impl<'a> StatBlock<'a> for BlockDeviceStats<'a> {
             let mut ent = match self.devices.get_mut(kname) {
                 Some(v) => v,
                 _ => {
-                    let z = DevStats(
+                    let z = DevStats {
                         t,
-                        ReadBytes(Bytes(0)),
-                        WrittenBytes(Bytes(0)),
-                        WeighedRequestTime(0),
-                    );
+                        read: Bytes(0),
+                        written: Bytes(0),
+                        wrt: 0,
+                    };
                     self.devices
                         .insert(String::from(kname), (z, z, Stale(false)));
                     self.devices.get_mut(kname).unwrap()
@@ -97,16 +94,12 @@ impl<'a> StatBlock<'a> for BlockDeviceStats<'a> {
             };
 
             ent.0 = ent.1;
-            ent.1 = DevStats(
+            ent.1 = DevStats {
                 t,
-                ReadBytes(Bytes(
-                    SECTOR_SIZE * bdev.nth(2).unwrap().parse::<u64>().unwrap(),
-                )),
-                WrittenBytes(Bytes(
-                    SECTOR_SIZE * bdev.nth(3).unwrap().parse::<u64>().unwrap(),
-                )),
-                WeighedRequestTime(bdev.nth(3).unwrap().parse::<u64>().unwrap()),
-            );
+                read: Bytes(SECTOR_SIZE * bdev.nth(2).unwrap().parse::<u64>().unwrap()),
+                written: Bytes(SECTOR_SIZE * bdev.nth(3).unwrap().parse::<u64>().unwrap()),
+                wrt: bdev.nth(3).unwrap().parse::<u64>().unwrap(),
+            };
             ent.2 = Stale(false);
         }
 
@@ -149,16 +142,15 @@ impl<'a> fmt::Display for BlockDeviceStats<'a> {
         )?;
 
         for (kname, s) in self.devices.iter() {
-            let t = (s.1 .0 - s.0 .0).as_millis() as u64;
+            let t = (s.1.t - s.0.t).as_millis() as u64;
             if t == 0 {
                 /* Device was just added */
                 continue;
             }
-            /* XXX ugly syntax */
-            let rd = Bytes(1000 * (s.1 .1 .0 .0 - s.0 .1 .0 .0) / t);
-            let wt = Bytes(1000 * (s.1 .2 .0 .0 - s.0 .2 .0 .0) / t);
+            let rd = Bytes(1000 * (s.1.read.0 - s.0.read.0) / t);
+            let wt = Bytes(1000 * (s.1.written.0 - s.0.written.0) / t);
             let p = Threshold {
-                val: Percentage(100.0 * ((s.1 .3 .0 - s.0 .3 .0) as f32) / (t as f32)),
+                val: Percentage(100.0 * ((s.1.wrt - s.0.wrt) as f32) / (t as f32)),
                 med: Percentage(50.0),
                 high: Percentage(80.0),
                 crit: Percentage(200.0),
