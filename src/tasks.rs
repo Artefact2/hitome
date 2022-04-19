@@ -25,8 +25,8 @@ use std::time::Instant;
 struct Pid(u32);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-/// 1 jiffie = 1/user_hz seconds
-struct Jiffies(u64, Instant);
+/// 1 jiffie = 1/user_hz seconds; (jiffies_used, system_uptime)
+struct Jiffies(u64, u64);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum TaskState {
@@ -65,8 +65,8 @@ impl<'a> fmt::Display for MaybeSmart<'a, TaskState> {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, PartialOrd)]
-struct CPUPercentage(f32);
+#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
+struct CPUPercentage(u8);
 
 impl fmt::Display for CPUPercentage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -76,7 +76,7 @@ impl fmt::Display for CPUPercentage {
 }
 
 #[derive(PartialEq, Eq)]
-struct TaskSort(TaskState, u64);
+struct TaskSort(TaskState, CPUPercentage);
 
 impl PartialOrd for TaskSort {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -126,7 +126,11 @@ struct TaskEntry(Jiffies, Jiffies, TaskState, Stale);
 pub struct TaskStats<'a> {
     settings: &'a Settings,
     /// How many jiffies in a second, as exposed to userspace
-    user_hz: f32,
+    user_hz: u16,
+    /// System uptime in jiffies
+    uptime: u64,
+    /// Hopefully near-ish time elapsed since uptime was updated
+    since_uptime: Instant,
     buf: String,
     buf2: String,
     buf3: String,
@@ -192,7 +196,7 @@ impl<'a> TaskStats<'a> {
     /* XXX: we don't really need to mutate self, we just need an output String, but the borrow
      * checker won't let us */
     /// Format a task's line to self.relevant[i]
-    fn format_task(&mut self, taskid: Pid, ent: TaskEntry, i: usize) {
+    fn format_task(&mut self, taskid: Pid, cpupc: CPUPercentage, ent: TaskEntry, i: usize) {
         /* XXX: find better way to do this */
         self.buf2.clear();
         write!(self.buf2, "/proc/{}/task/{}/cmdline", taskid.0, taskid.0).unwrap();
@@ -237,9 +241,6 @@ impl<'a> TaskStats<'a> {
 
         let newline = MaybeSmart(Newline(), self.settings);
         let w = self.settings.colwidth.get().into();
-        let cpupc = ((100000 * (ent.1 .0 - ent.0 .0)) as f32)
-            / self.user_hz
-            / ((ent.1 .1 - ent.0 .1).as_millis() as f32);
 
         write!(
             self.relevant[i],
@@ -248,10 +249,10 @@ impl<'a> TaskStats<'a> {
             MaybeSmart(ent.2, self.settings),
             MaybeSmart(
                 Threshold {
-                    val: CPUPercentage(cpupc),
-                    med: CPUPercentage(40.0),
-                    high: CPUPercentage(60.0),
-                    crit: CPUPercentage(80.0),
+                    val: cpupc,
+                    med: CPUPercentage(40),
+                    high: CPUPercentage(60),
+                    crit: CPUPercentage(80),
                 },
                 self.settings
             ),
@@ -266,7 +267,7 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
     fn new(s: &'a Settings) -> Self {
         let mut ts = TaskStats {
             settings: s,
-            user_hz: unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as f32,
+            user_hz: unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as u16,
             buf: String::new(),
             buf2: String::new(),
             buf3: String::new(),
@@ -274,6 +275,8 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
             sorted: BinaryHeap::new(),
             relevant: Default::default(),
             maxtasks: 10,
+            uptime: 0,
+            since_uptime: Instant::now(),
         };
         ts.update();
         ts
@@ -284,25 +287,29 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
         for t in self.tasks.values_mut() {
             t.3 = Stale(true);
         }
-        let t = Instant::now();
+
+        self.since_uptime = Instant::now();
+        /* /proc/uptime is never exposed to user data */
+        unsafe { read_to_string_unchecked("/proc/uptime", &mut self.buf) }.unwrap();
+        self.uptime = (self
+            .buf
+            .split_ascii_whitespace()
+            .next()
+            .unwrap()
+            .parse::<f32>()
+            .unwrap()
+            * 100.0) as u64
+            * self.user_hz as u64
+            / 100;
+
         map_tasks(&mut self.buf, |taskid, stat| {
-            let mut ent = match self.tasks.get_mut(&taskid) {
-                Some(e) => e,
-                _ => {
-                    let z = TaskEntry(
-                        Jiffies(0, t),
-                        Jiffies(0, t),
-                        TaskState::Sleeping,
-                        Stale(false),
-                    );
-                    self.tasks.insert(taskid, z);
-                    self.tasks.get_mut(&taskid).unwrap()
-                }
-            };
+            let uptime = self.uptime
+                + self.since_uptime.elapsed().as_millis() as u64 * self.user_hz as u64 / 1000;
 
+            /* See https://www.kernel.org/doc/html/latest/filesystems/proc.html table 1-4 */
+            /* And proc(5) */
             let mut stat = stat.rsplit_once(')').unwrap().1.split_ascii_whitespace();
-
-            ent.2 = match stat.next().unwrap() {
+            let state = match stat.next().unwrap() {
                 "S" => TaskState::Sleeping,
                 "R" => TaskState::Running,
                 "D" => TaskState::Uninterruptible,
@@ -311,25 +318,44 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
                 "I" => TaskState::Idle,
                 _ => TaskState::Unknown,
             };
+            let used_jiffies = stat.nth(10).unwrap().parse::<u64>().unwrap()
+                + stat.next().unwrap().parse::<u64>().unwrap();
+
+            let mut ent = match self.tasks.get_mut(&taskid) {
+                Some(e) => e,
+                _ => {
+                    let start_time = stat.nth(6).unwrap().parse::<u64>().unwrap();
+                    let z = TaskEntry(
+                        Jiffies(0, 0),
+                        Jiffies(0, start_time),
+                        TaskState::Sleeping,
+                        Stale(false),
+                    );
+                    self.tasks.insert(taskid, z);
+                    self.tasks.get_mut(&taskid).unwrap()
+                }
+            };
+
             ent.0 = ent.1;
-            ent.1 = Jiffies(
-                stat.nth(10).unwrap().parse::<u64>().unwrap()
-                    + stat.next().unwrap().parse::<u64>().unwrap(),
-                t,
-            );
+            ent.1 = Jiffies(used_jiffies, uptime);
+            ent.2 = state;
             ent.3 = Stale(false);
         });
         self.tasks.retain(|_, t| t.3 == Stale(false));
 
-        /* Sort tasks by state/jiffies */
+        /* Sort tasks by state/cpu% */
         self.sorted.clear();
         for (pid, task) in self.tasks.iter() {
-            if task.0 .1 == task.1 .1 {
-                /* Task was seen for the first time, data is not accurate yet */
+            if task.0 .1 >= task.1 .1 {
                 continue;
             }
-            self.sorted
-                .push((TaskSort(task.2, task.1 .0 - task.0 .0), *pid));
+            self.sorted.push((
+                TaskSort(
+                    task.2,
+                    CPUPercentage((100 * (task.1 .0 - task.0 .0) / (task.1 .1 - task.0 .1)) as u8),
+                ),
+                *pid,
+            ));
         }
 
         for s in self.relevant.iter_mut() {
@@ -346,19 +372,19 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
 
         /* Format the most important tasks */
         for i in 0..(self.maxtasks as usize) {
-            let taskid = match self.sorted.pop() {
-                Some((_, t)) => t,
+            let (tasksort, taskid) = match self.sorted.pop() {
+                Some(x) => x,
                 _ => break,
             };
-            let ent = self.tasks.get(&taskid).unwrap();
-            if ent.1 .0 == ent.0 .0 {
-                /* Ran out of tasks that used a single jiffy */
+            if tasksort.0 == TaskState::Sleeping && tasksort.1 .0 == 0 {
+                /* Ran out of interesting tasks */
                 break;
             }
+            let ent = self.tasks.get(&taskid).unwrap();
             /* Give a copy of the data to avoid looking it up a second time. Is this really worth
              * it? Maybe just use a BTreeMap<_, Cell<TaskEntry>> instead? */
             let copy = *ent;
-            self.format_task(taskid, copy, i);
+            self.format_task(taskid, tasksort.1, copy, i);
         }
     }
 
