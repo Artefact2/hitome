@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 libc = "0.2"
 argh = "0.1.7"
+fnv = "1.0.7"
 
 # see https://github.com/johnthagen/min-sized-rust
 [profile.release]

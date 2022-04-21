@@ -14,8 +14,9 @@
  */
 
 use crate::common::*;
+use fnv::FnvHashMap;
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::BinaryHeap;
 use std::fmt;
 use std::fmt::Write;
 use std::time::Instant;
@@ -134,7 +135,7 @@ pub struct TaskStats<'a> {
     buf: String,
     buf2: String,
     buf3: String,
-    tasks: HashMap<Pid, TaskEntry>,
+    tasks: FnvHashMap<Pid, TaskEntry>,
     /// Used to sort tasks by their State/CPU%. Pushing is O(1) and popping is O(log n). Pushing all
     /// the tasks and popping the 10 highest is only O(n + 10 log n) instead of sorting which is O(n
     /// log n).
@@ -271,7 +272,7 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
             buf: String::new(),
             buf2: String::new(),
             buf3: String::new(),
-            tasks: HashMap::new(),
+            tasks: FnvHashMap::default(),
             sorted: BinaryHeap::new(),
             relevant: Default::default(),
             maxtasks: 10,
