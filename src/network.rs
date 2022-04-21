@@ -14,7 +14,7 @@
  */
 
 use crate::common::*;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::time::Instant;
 
@@ -27,8 +27,8 @@ struct IfaceStats {
 
 pub struct NetworkStats<'a> {
     settings: &'a Settings,
-    /// kname (eg. enp6s0) -> ...
-    ifaces: HashMap<String, (IfaceStats, IfaceStats, Stale)>,
+    /// kname (eg. enp6s0) -> ...; use a BTreeMap for deterministic in-order traversal
+    ifaces: BTreeMap<String, (IfaceStats, IfaceStats, Stale)>,
     buf: String,
 }
 
@@ -36,7 +36,7 @@ impl<'a> StatBlock<'a> for NetworkStats<'a> {
     fn new(s: &'a Settings) -> NetworkStats {
         let mut ns = NetworkStats {
             settings: s,
-            ifaces: HashMap::new(),
+            ifaces: Default::default(),
             buf: String::new(),
         };
         ns.update();
