@@ -59,6 +59,21 @@ pub struct Settings {
     pub colwidth: Cell<u16>,
 }
 
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            smart: false,
+            refresh: 2000,
+            auto_colwidth: false,
+            auto_maxcols: false,
+            auto_maxrows: false,
+            maxcols: Cell::new(120),
+            maxrows: Cell::new(50),
+            colwidth: Cell::new(10),
+        }
+    }
+}
+
 pub trait StatBlock<'a> {
     fn new(s: &'a Settings) -> Self;
     fn update(&mut self);

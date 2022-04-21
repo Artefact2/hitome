@@ -13,28 +13,20 @@
  * limitations under the License.
  */
 
-use crate::blockdev::BlockDeviceStats;
-use crate::common::*;
-use crate::cpu::CpuStats;
-use crate::fs::FilesystemStats;
-use crate::mem::MemoryStats;
-use crate::network::NetworkStats;
-use crate::pressure::PressureStats;
-use crate::tasks::TaskStats;
+use hitome::blockdev::BlockDeviceStats;
+use hitome::common::*;
+use hitome::cpu::CpuStats;
+use hitome::fs::FilesystemStats;
+use hitome::mem::MemoryStats;
+use hitome::network::NetworkStats;
+use hitome::pressure::PressureStats;
+use hitome::tasks::TaskStats;
 use std::cell::Cell;
 use std::io::{self, BufWriter, Write};
 use std::thread;
 use std::time::{Duration, Instant};
 
-mod blockdev;
-mod common;
-mod cpu;
-mod fs;
-mod mem;
-mod network;
-mod pressure;
-mod tasks;
-
+// XXX: find a better place for these
 const MIN_COL_WIDTH: u16 = 8;
 const MIN_COLUMNS: u16 = 8 * MIN_COL_WIDTH + 7;
 const MIN_ROWS: u16 = 24;
