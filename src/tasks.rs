@@ -153,9 +153,8 @@ pub struct TaskStats<'a> {
 /// racy. XXX: this would work better as an Iterator, but i don't know how to do that
 fn map_tasks<F>(buf: &mut String, p: &mut PathBuf, pi: &mut PathBuf, mut doit: F)
 where
-    F: FnMut(Pid, &str),
+    F: FnMut(&str),
 {
-    /* XXX: find if glob() is worth using here */
     p.clear();
     p.push("/proc");
     pi.clear();
@@ -190,16 +189,10 @@ where
                     _ => continue,
                 };
 
-                /* XXX: use unchecked variant */
-                let taskid = match task.file_name().to_str().unwrap_or("").parse::<u32>() {
-                    Ok(p) => Pid(p),
-                    _ => continue,
-                };
-
                 pi.push(task.file_name());
                 pi.push("stat");
                 if read_to_string(&pi, buf).is_ok() {
-                    doit(taskid, buf);
+                    doit(buf);
                 }
                 pi.pop();
                 pi.pop();
@@ -330,50 +323,46 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
             * self.user_hz as u64
             / 100;
 
-        map_tasks(
-            &mut self.buf,
-            &mut self.bufp,
-            &mut self.bufp2,
-            |taskid, stat| {
-                let uptime = self.uptime
-                    + self.since_uptime.elapsed().as_millis() as u64 * self.user_hz as u64 / 1000;
+        map_tasks(&mut self.buf, &mut self.bufp, &mut self.bufp2, |stat| {
+            let uptime = self.uptime
+                + self.since_uptime.elapsed().as_millis() as u64 * self.user_hz as u64 / 1000;
 
-                /* See https://www.kernel.org/doc/html/latest/filesystems/proc.html table 1-4 */
-                /* And proc(5) */
-                let mut stat = stat.rsplit_once(')').unwrap().1.split_ascii_whitespace();
-                let state = match stat.next().unwrap() {
-                    "S" => TaskState::Sleeping,
-                    "R" => TaskState::Running,
-                    "D" => TaskState::Uninterruptible,
-                    "Z" => TaskState::Zombie,
-                    "T" => TaskState::Traced,
-                    "I" => TaskState::Idle,
-                    _ => TaskState::Unknown,
-                };
-                let used_jiffies = stat.nth(10).unwrap().parse::<u64>().unwrap()
-                    + stat.next().unwrap().parse::<u64>().unwrap();
+            /* See https://www.kernel.org/doc/html/latest/filesystems/proc.html table 1-4 */
+            /* And proc(5) */
+            let taskid = Pid(stat.split_once(' ').unwrap().0.parse::<u32>().unwrap());
+            let mut stat = stat.rsplit_once(')').unwrap().1.split_ascii_whitespace();
+            let state = match stat.next().unwrap() {
+                "S" => TaskState::Sleeping,
+                "R" => TaskState::Running,
+                "D" => TaskState::Uninterruptible,
+                "Z" => TaskState::Zombie,
+                "T" => TaskState::Traced,
+                "I" => TaskState::Idle,
+                _ => TaskState::Unknown,
+            };
+            let used_jiffies = stat.nth(10).unwrap().parse::<u64>().unwrap()
+                + stat.next().unwrap().parse::<u64>().unwrap();
 
-                let mut ent = match self.tasks.get_mut(&taskid) {
-                    Some(e) => e,
-                    _ => {
-                        let start_time = stat.nth(6).unwrap().parse::<u64>().unwrap();
-                        let z = TaskEntry(
-                            Jiffies(0, 0),
-                            Jiffies(0, start_time),
-                            TaskState::Sleeping,
-                            Stale(false),
-                        );
-                        self.tasks.insert(taskid, z);
-                        self.tasks.get_mut(&taskid).unwrap()
-                    }
-                };
+            let mut ent = match self.tasks.get_mut(&taskid) {
+                Some(e) => e,
+                _ => {
+                    let start_time = stat.nth(6).unwrap().parse::<u64>().unwrap();
+                    let z = TaskEntry(
+                        Jiffies(0, 0),
+                        Jiffies(0, start_time),
+                        TaskState::Sleeping,
+                        Stale(false),
+                    );
+                    self.tasks.insert(taskid, z);
+                    self.tasks.get_mut(&taskid).unwrap()
+                }
+            };
 
-                ent.0 = ent.1;
-                ent.1 = Jiffies(used_jiffies, uptime);
-                ent.2 = state;
-                ent.3 = Stale(false);
-            },
-        );
+            ent.0 = ent.1;
+            ent.1 = Jiffies(used_jiffies, uptime);
+            ent.2 = state;
+            ent.3 = Stale(false);
+        });
         self.tasks.retain(|_, t| t.3 == Stale(false));
 
         /* Sort tasks by state/cpu% */
