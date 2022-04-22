@@ -166,7 +166,9 @@ fn main() {
 
         w.flush().unwrap();
         thread::sleep(Duration::from_millis(
-            settings.refresh - t.elapsed().as_millis() as u64,
+            settings
+                .refresh
+                .saturating_sub(t.elapsed().as_millis() as u64),
         ));
     }
 }
