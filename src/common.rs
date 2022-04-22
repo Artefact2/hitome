@@ -186,7 +186,9 @@ where
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub struct Stale(pub bool);
 
-/// Read contents of a file, assuming it is valid UTF-8
+/// Read contents of a file to a given String buffer
+/// # Safety
+/// Make sure the file you are reading can never contain bad UTF-8
 pub unsafe fn read_to_string_unchecked<P: AsRef<std::path::Path>>(
     p: P,
     s: &mut String,

@@ -155,6 +155,7 @@ fn map_tasks<F>(buf: &mut String, p: &mut PathBuf, pi: &mut PathBuf, mut doit: F
 where
     F: FnMut(&str),
 {
+    /* XXX: find if io_uring is worth using here */
     p.clear();
     p.push("/proc");
     pi.clear();
