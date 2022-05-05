@@ -100,8 +100,11 @@ impl Display for Bytes {
             write!(f, "{:>w$.2}G", self.0 as f32 / (1024. * 1024. * 1024.))
         } else if self.0 >= 10000 * 1024 {
             write!(f, "{:>w$.2}M", self.0 as f32 / (1024. * 1024.))
-        } else {
+        } else if self.0 > 0 {
             write!(f, "{:>w$.2}K", self.0 as f32 / 1024.)
+        } else {
+            let w = w + 1;
+            write!(f, "{:>w$}", ".")
         }
     }
 }
