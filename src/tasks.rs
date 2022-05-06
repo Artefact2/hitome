@@ -405,7 +405,6 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
                 }
             }
             unsafe {
-                assert!(libc::lseek(ent.filedes.as_ref().unwrap().0, 0, libc::SEEK_SET) == 0);
                 assert!(
                     libc::read(
                         ent.filedes.as_ref().unwrap().0,
@@ -426,6 +425,10 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
             }
             if must_close {
                 ent.filedes = None;
+            } else {
+                unsafe {
+                    assert!(libc::lseek(ent.filedes.as_ref().unwrap().0, 0, libc::SEEK_SET) == 0);
+                }
             }
 
             /* See https://www.kernel.org/doc/html/latest/filesystems/proc.html table 1-4 */
