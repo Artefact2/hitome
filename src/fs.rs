@@ -26,6 +26,8 @@ struct FSUsage {
 pub struct FilesystemStats<'a> {
     settings: &'a Settings,
     /* XXX: use PathBuf as key? OsString? otoh we don't really need portability */
+    /* XXX: we need the CString for statvfs; find way to avoid duplicate data */
+    /// Mountpoint -> (_, Mountpoint, _)
     filesystems: BTreeMap<String, (FSUsage, CString, Stale)>,
     buf: String,
 }
@@ -48,13 +50,11 @@ impl<'a> StatBlock<'a> for FilesystemStats<'a> {
         /* XXX: keep instance in self and blank it when we're done? don't know how to work around
          * lifetime stuff */
         /* XXX: use PathBuf? OsString? */
-        let mut seen: HashSet<&str> = HashSet::new();
+        let mut seen = HashSet::<&str>::with_capacity(self.filesystems.len());
 
         for v in self.filesystems.values_mut() {
             v.2 = Stale(true);
         }
-
-        let mut vfs: std::mem::MaybeUninit<libc::statvfs64> = std::mem::MaybeUninit::uninit();
 
         for mount in self.buf.lines() {
             let (bdev, mountpoint) = mount
@@ -105,6 +105,9 @@ impl<'a> StatBlock<'a> for FilesystemStats<'a> {
             };
 
             unsafe {
+                use std::mem::MaybeUninit;
+                let mut vfs: MaybeUninit<libc::statvfs64> = MaybeUninit::uninit();
+
                 if libc::statvfs64(ent.1.as_ptr() as *const libc::c_char, vfs.as_mut_ptr()) != 0 {
                     panic!("statvfs64({}) returned non-zero", mountpoint);
                 }
