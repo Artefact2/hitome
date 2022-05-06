@@ -122,9 +122,21 @@ impl<'a, 'b> fmt::Display for MaybeSmart<'a, CommandLine<'b>> {
     }
 }
 
+struct FileDescriptor(libc::c_int);
+
+impl Drop for FileDescriptor {
+    fn drop(&mut self) {
+        if self.0 == -1 {
+            return;
+        }
+        let ret = unsafe { libc::close(self.0) };
+        assert!(ret == 0);
+    }
+}
+
 struct TaskEntry {
-    /// If >0, opened file descriptor of /proc/pid/task/pid/stat
-    filedes: libc::c_int,
+    /// For /proc/pid/task/pid/stat
+    filedes: Option<FileDescriptor>,
     jiffies: (Jiffies, Jiffies),
     state: TaskState,
     stale: Stale,
@@ -142,7 +154,7 @@ pub struct TaskStats<'a> {
     buf2: String,
     buf3: String,
     bufp: PathBuf,
-    bufp2: PathBuf,
+    bufstat: [u8; 512],
     tasks: FnvHashMap<Pid, TaskEntry>,
     /// Used to sort tasks by their State/CPU%. Pushing is O(1) and popping is O(log n). Pushing all
     /// the tasks and popping the 10 highest is only O(n + 10 log n) instead of sorting which is O(n
@@ -152,21 +164,21 @@ pub struct TaskStats<'a> {
     relevant: Vec<String>,
     /// How many tasks we can print
     maxtasks: u16,
+    /// The maximum number of files we can open concurrently
+    max_fds: u64,
 }
 
 /// Walk /proc and call the closure for each task, eg /proc/X/task/Y. Skips invalid files instead of
 /// panicking, as tasks are created/deleted all the time and scanning them in /proc is inherently
 /// racy. XXX: this would work better as an Iterator, but i don't know how to do that
-fn map_tasks<F>(buf: &mut String, p: &mut PathBuf, pi: &mut PathBuf, mut doit: F)
+fn map_tasks<F>(p: &mut PathBuf, mut doit: F)
 where
-    F: FnMut(&str),
+    F: FnMut(Pid),
 {
     /* XXX: find if io_uring is worth using here */
     /* XXX: same, but with inotify watches */
     p.clear();
     p.push("/proc");
-    pi.clear();
-    pi.push("/proc");
 
     for process in std::fs::read_dir("/proc").unwrap() {
         let process = match process {
@@ -181,8 +193,6 @@ where
 
         p.push(process.file_name());
         p.push("task");
-        pi.push(process.file_name());
-        pi.push("task");
 
         /* XXX: this is glorified goto to avoid repeating the popping in case of an early break. Is
          * there a better solution? */
@@ -197,22 +207,18 @@ where
                     _ => continue,
                 };
 
-                pi.push(task.file_name());
-                pi.push("stat");
-                /* XXX: cache the file descriptor */
-                if read_to_string(&pi, buf).is_ok() {
-                    doit(buf);
-                }
-                pi.pop();
-                pi.pop();
+                let taskid = match task.file_name().to_str().unwrap().parse::<u32>() {
+                    Ok(t) => Pid(t),
+                    _ => continue,
+                };
+
+                doit(taskid);
             }
             break;
         }
 
         p.pop();
         p.pop();
-        pi.pop();
-        pi.pop();
     }
 }
 
@@ -298,6 +304,27 @@ impl<'a> TaskStats<'a> {
         )
         .unwrap();
     }
+
+    fn open_task_stat(t: Pid, buf: &mut String) -> Option<FileDescriptor> {
+        buf.clear();
+        write!(buf, "/proc/{}/task/{}/stat\x00", t.0, t.0).unwrap();
+        let cstr = std::ffi::CStr::from_bytes_with_nul(buf.as_bytes()).unwrap();
+        let fd = unsafe { libc::open(cstr.as_ptr(), libc::O_RDONLY) };
+        if fd == -1 {
+            unsafe {
+                if *libc::__errno_location() == libc::ENOENT {
+                    // Task is done, this is fine
+                    return None;
+                }
+                let msg = std::ffi::CString::new("open()").unwrap();
+                libc::perror(msg.as_ptr());
+            }
+
+            dbg!(cstr);
+            panic!();
+        }
+        Some(FileDescriptor(fd))
+    }
 }
 
 impl<'a> StatBlock<'a> for TaskStats<'a> {
@@ -309,13 +336,19 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
             buf2: String::new(),
             buf3: String::new(),
             bufp: Default::default(),
-            bufp2: Default::default(),
+            bufstat: [0; 512],
             tasks: FnvHashMap::default(),
             sorted: BinaryHeap::new(),
             relevant: Default::default(),
             maxtasks: 10,
             uptime: 0,
             since_uptime: Instant::now(),
+            max_fds: unsafe {
+                let mut n = std::mem::MaybeUninit::<libc::rlimit>::uninit();
+                libc::getrlimit(libc::RLIMIT_NOFILE, n.as_mut_ptr());
+                let n = n.assume_init();
+                n.rlim_cur.saturating_sub(10)
+            },
         };
         ts.update();
         ts
@@ -341,13 +374,54 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
             * self.user_hz as u64
             / 100;
 
-        map_tasks(&mut self.buf, &mut self.bufp, &mut self.bufp2, |stat| {
+        map_tasks(&mut self.bufp, |taskid| {
             let uptime = self.uptime
                 + self.since_uptime.elapsed().as_millis() as u64 * self.user_hz as u64 / 1000;
 
+            let mut ent = match self.tasks.get_mut(&taskid) {
+                Some(e) => e,
+                _ => {
+                    let z = TaskEntry {
+                        filedes: if self.tasks.len() < self.max_fds as usize {
+                            Self::open_task_stat(taskid, &mut self.buf)
+                        } else {
+                            None
+                        },
+                        jiffies: (Jiffies(0, 0), Jiffies(0, 0)),
+                        state: TaskState::Sleeping,
+                        stale: Stale(false),
+                    };
+                    self.tasks.insert(taskid, z);
+                    self.tasks.get_mut(&taskid).unwrap()
+                }
+            };
+
+            let stat;
+            let must_close = ent.filedes.is_none();
+            if must_close {
+                ent.filedes = Self::open_task_stat(taskid, &mut self.buf);
+                if ent.filedes.is_none() {
+                    return;
+                }
+            }
+            unsafe {
+                assert!(libc::lseek(ent.filedes.as_ref().unwrap().0, 0, libc::SEEK_SET) == 0);
+                assert!(
+                    libc::read(
+                        ent.filedes.as_ref().unwrap().0,
+                        self.bufstat.as_mut_slice().as_mut_ptr() as *mut libc::c_void,
+                        511, // Leave 1 byte for the final \0
+                    ) != -1
+                );
+                stat =
+                    std::ffi::CStr::from_bytes_with_nul_unchecked(&self.bufstat).to_string_lossy();
+            }
+            if must_close {
+                ent.filedes = None;
+            }
+
             /* See https://www.kernel.org/doc/html/latest/filesystems/proc.html table 1-4 */
             /* And proc(5) */
-            let taskid = Pid(stat.split_once(' ').unwrap().0.parse::<u32>().unwrap());
             let mut stat = stat.rsplit_once(')').unwrap().1.split_ascii_whitespace();
             let state = match stat.next().unwrap() {
                 "S" => TaskState::Sleeping,
@@ -361,20 +435,10 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
             let used_jiffies = stat.nth(10).unwrap().parse::<u64>().unwrap()
                 + stat.next().unwrap().parse::<u64>().unwrap();
 
-            let mut ent = match self.tasks.get_mut(&taskid) {
-                Some(e) => e,
-                _ => {
-                    let start_time = stat.nth(6).unwrap().parse::<u64>().unwrap();
-                    let z = TaskEntry {
-                        filedes: 0,
-                        jiffies: (Jiffies(0, 0), Jiffies(0, start_time)),
-                        state: TaskState::Sleeping,
-                        stale: Stale(false),
-                    };
-                    self.tasks.insert(taskid, z);
-                    self.tasks.get_mut(&taskid).unwrap()
-                }
-            };
+            if ent.stale == Stale(false) {
+                // This task was just created, fetch its start_time
+                ent.jiffies.1 .1 = stat.nth(6).unwrap().parse::<u64>().unwrap();
+            }
 
             ent.jiffies.0 = ent.jiffies.1;
             ent.jiffies.1 = Jiffies(used_jiffies, uptime);
