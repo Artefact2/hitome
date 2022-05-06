@@ -244,7 +244,7 @@ impl<'a> TaskStats<'a> {
         buf2.clear();
         write!(buf2, "/proc/{}/task/{}/cmdline", taskid.0, taskid.0).unwrap();
         let cmdline = match read_to_string(&buf2, buf) {
-            Ok(_) => &buf,
+            Ok(_) => buf,
             _ => "",
         };
 
@@ -299,7 +299,7 @@ impl<'a> TaskStats<'a> {
                 },
                 settings
             ),
-            MaybeSmart(CommandLine(comm, progname, &buf2), settings),
+            MaybeSmart(CommandLine(comm, progname, buf2), settings),
             newline
         )
         .unwrap();
@@ -413,8 +413,16 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
                         511, // Leave 1 byte for the final \0
                     ) != -1
                 );
-                stat =
-                    std::ffi::CStr::from_bytes_with_nul_unchecked(&self.bufstat).to_string_lossy();
+
+                // The stat file contains only numbers, except for the process name (truncated to 16
+                // chars) which is inbetween parentheses. Skip over the process name to avoid
+                // checking for valid utf-8.
+                let mut i = 3;
+                while self.bufstat[i] != b')' {
+                    /* XXX: handle closing parens in process name */
+                    i += 1;
+                }
+                stat = std::str::from_utf8_unchecked(&self.bufstat[(i + 1)..]);
             }
             if must_close {
                 ent.filedes = None;
@@ -422,7 +430,7 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
 
             /* See https://www.kernel.org/doc/html/latest/filesystems/proc.html table 1-4 */
             /* And proc(5) */
-            let mut stat = stat.rsplit_once(')').unwrap().1.split_ascii_whitespace();
+            let mut stat = stat.split_ascii_whitespace();
             let state = match stat.next().unwrap() {
                 "S" => TaskState::Sleeping,
                 "R" => TaskState::Running,
