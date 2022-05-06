@@ -122,8 +122,13 @@ impl<'a, 'b> fmt::Display for MaybeSmart<'a, CommandLine<'b>> {
     }
 }
 
-#[derive(Clone, Copy)]
-struct TaskEntry(Jiffies, Jiffies, TaskState, Stale);
+struct TaskEntry {
+    /// If >0, opened file descriptor of /proc/pid/task/pid/stat
+    filedes: libc::c_int,
+    jiffies: (Jiffies, Jiffies),
+    state: TaskState,
+    stale: Stale,
+}
 
 pub struct TaskStats<'a> {
     settings: &'a Settings,
@@ -143,6 +148,7 @@ pub struct TaskStats<'a> {
     /// the tasks and popping the 10 highest is only O(n + 10 log n) instead of sorting which is O(n
     /// log n).
     sorted: BinaryHeap<(TaskSort, Pid)>,
+    /// Formatted and ordered lines, ready to be printed
     relevant: Vec<String>,
     /// How many tasks we can print
     maxtasks: u16,
@@ -156,6 +162,7 @@ where
     F: FnMut(&str),
 {
     /* XXX: find if io_uring is worth using here */
+    /* XXX: same, but with inotify watches */
     p.clear();
     p.push("/proc");
     pi.clear();
@@ -192,6 +199,7 @@ where
 
                 pi.push(task.file_name());
                 pi.push("stat");
+                /* XXX: cache the file descriptor */
                 if read_to_string(&pi, buf).is_ok() {
                     doit(buf);
                 }
@@ -213,27 +221,36 @@ impl<'a> TaskStats<'a> {
         self.maxtasks = tasks;
     }
 
-    /* XXX: we don't really need to mutate self, we just need an output String, but the borrow
-     * checker won't let us */
-    /// Format a task's line to self.relevant[i]
-    fn format_task(&mut self, taskid: Pid, cpupc: CPUPercentage, ent: TaskEntry, i: usize) {
+    // XXX: this would be much simpler as a method that mutates self, but the borrow checker won't
+    // let us do that since we already take a &TaskEntry argument
+    /// Format a task's line to out String
+    fn format_task(
+        settings: &Settings,
+        buf: &mut String,
+        buf2: &mut String,
+        buf3: &mut String,
+        out: &mut String,
+        taskid: Pid,
+        cpupc: CPUPercentage,
+        ent: &TaskEntry,
+    ) {
         /* XXX: find better way to do this */
-        self.buf2.clear();
-        write!(self.buf2, "/proc/{}/task/{}/cmdline", taskid.0, taskid.0).unwrap();
-        let cmdline = match read_to_string(&self.buf2, &mut self.buf) {
-            Ok(_) => &self.buf,
+        buf2.clear();
+        write!(buf2, "/proc/{}/task/{}/cmdline", taskid.0, taskid.0).unwrap();
+        let cmdline = match read_to_string(&buf2, buf) {
+            Ok(_) => &buf,
             _ => "",
         };
 
-        self.buf2.clear();
-        write!(self.buf2, "/proc/{}/task/{}/comm", taskid.0, taskid.0).unwrap();
-        let comm = match read_to_string(&self.buf2, &mut self.buf3) {
-            Ok(_) => self.buf3.strip_suffix('\n').unwrap(),
+        buf2.clear();
+        write!(buf2, "/proc/{}/task/{}/comm", taskid.0, taskid.0).unwrap();
+        let comm = match read_to_string(&buf2, buf3) {
+            Ok(_) => buf3.strip_suffix('\n').unwrap(),
             _ => "",
         };
 
         /* Format the cmdline: skip path of argv[0], split args by spaces */
-        let max_length = (self.settings.maxcols.get() - self.settings.colwidth.get() - 8).into();
+        let max_length = (settings.maxcols.get() - settings.colwidth.get() - 8).into();
         let mut cmdline = cmdline.split('\0');
         let progname = cmdline.next().unwrap_or("");
         let progname = match progname.rsplit_once('/') {
@@ -241,32 +258,32 @@ impl<'a> TaskStats<'a> {
             _ => progname,
         };
 
-        self.buf2.clear();
+        buf2.clear();
         for arg in cmdline {
-            if self.buf2.len() >= max_length {
+            if buf2.len() >= max_length {
                 break;
             }
 
             /* Some half-assed shell-like escaping, should cover most cases, doesn't need to be
              * perfect since it will be truncated anyway */
             match arg.contains(' ') {
-                false => write!(self.buf2, "{} ", arg).unwrap(),
+                false => write!(buf2, "{} ", arg).unwrap(),
                 true => match arg.contains('\'') {
-                    false => write!(self.buf2, "'{}' ", arg).unwrap(),
+                    false => write!(buf2, "'{}' ", arg).unwrap(),
                     /* XXX: creating a new String here may not be a good idea, hopefully this case is rare */
-                    true => write!(self.buf2, "'{}' ", arg.replace('\\', "\\'")).unwrap(),
+                    true => write!(buf2, "'{}' ", arg.replace('\\', "\\'")).unwrap(),
                 },
             }
         }
 
-        let newline = MaybeSmart(Newline(), self.settings);
-        let w = self.settings.colwidth.get().into();
+        let newline = MaybeSmart(Newline(), settings);
+        let w = settings.colwidth.get().into();
 
         write!(
-            self.relevant[i],
+            out,
             "{:>w$} {:1} {:>4} {:<max_length$}{}",
             taskid.0,
-            MaybeSmart(ent.2, self.settings),
+            MaybeSmart(ent.state, settings),
             MaybeSmart(
                 Threshold {
                     val: cpupc,
@@ -274,9 +291,9 @@ impl<'a> TaskStats<'a> {
                     high: CPUPercentage(60),
                     crit: CPUPercentage(80),
                 },
-                self.settings
+                settings
             ),
-            MaybeSmart(CommandLine(comm, progname, &self.buf2), self.settings),
+            MaybeSmart(CommandLine(comm, progname, &buf2), settings),
             newline
         )
         .unwrap();
@@ -307,7 +324,7 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
     fn update(&mut self) {
         /* Measure and store jiffies of each task in self.tasks */
         for t in self.tasks.values_mut() {
-            t.3 = Stale(true);
+            t.stale = Stale(true);
         }
 
         self.since_uptime = Instant::now();
@@ -348,34 +365,38 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
                 Some(e) => e,
                 _ => {
                     let start_time = stat.nth(6).unwrap().parse::<u64>().unwrap();
-                    let z = TaskEntry(
-                        Jiffies(0, 0),
-                        Jiffies(0, start_time),
-                        TaskState::Sleeping,
-                        Stale(false),
-                    );
+                    let z = TaskEntry {
+                        filedes: 0,
+                        jiffies: (Jiffies(0, 0), Jiffies(0, start_time)),
+                        state: TaskState::Sleeping,
+                        stale: Stale(false),
+                    };
                     self.tasks.insert(taskid, z);
                     self.tasks.get_mut(&taskid).unwrap()
                 }
             };
 
-            ent.0 = ent.1;
-            ent.1 = Jiffies(used_jiffies, uptime);
-            ent.2 = state;
-            ent.3 = Stale(false);
+            ent.jiffies.0 = ent.jiffies.1;
+            ent.jiffies.1 = Jiffies(used_jiffies, uptime);
+            ent.state = state;
+            ent.stale = Stale(false);
         });
-        self.tasks.retain(|_, t| t.3 == Stale(false));
+        self.tasks.retain(|_, t| t.stale == Stale(false));
 
         /* Sort tasks by state/cpu% */
         self.sorted.clear();
         for (pid, task) in self.tasks.iter() {
-            if task.0 .1 >= task.1 .1 {
+            if task.jiffies.0 .1 >= task.jiffies.1 .1 {
                 continue;
             }
             self.sorted.push((
                 TaskSort(
-                    task.2,
-                    CPUPercentage((100 * (task.1 .0 - task.0 .0) / (task.1 .1 - task.0 .1)) as u8),
+                    task.state,
+                    CPUPercentage(
+                        (100 * (task.jiffies.1 .0 - task.jiffies.0 .0)
+                            / (task.jiffies.1 .1 - task.jiffies.0 .1))
+                            as u8,
+                    ),
                 ),
                 *pid,
             ));
@@ -404,10 +425,16 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
                 break;
             }
             let ent = self.tasks.get(&taskid).unwrap();
-            /* Give a copy of the data to avoid looking it up a second time. Is this really worth
-             * it? Maybe just use a BTreeMap<_, Cell<TaskEntry>> instead? */
-            let copy = *ent;
-            self.format_task(taskid, tasksort.1, copy, i);
+            Self::format_task(
+                self.settings,
+                &mut self.buf,
+                &mut self.buf2,
+                &mut self.buf3,
+                &mut self.relevant[i],
+                taskid,
+                tasksort.1,
+                ent,
+            );
         }
     }
 
