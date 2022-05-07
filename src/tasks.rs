@@ -411,7 +411,8 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
                     511, // Leave 1 byte for the final \0
                 );
                 if ret == -1 {
-                    libc_panic("read()");
+                    // XXX: -EIO with "No such process" sometimes happens, how to handle?
+                    return;
                 }
 
                 // The stat file contains only numbers, except for the process name (truncated to 16
