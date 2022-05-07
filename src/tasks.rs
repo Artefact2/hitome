@@ -400,10 +400,9 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
                 // The stat file contains only numbers, except for the process name (truncated to 16
                 // chars) which is inbetween parentheses. Skip over the process name to avoid
                 // checking for valid utf-8.
-                let mut i = 3;
+                let mut i = ret as usize - 96; // XXX: 48 fields of at least 2 chars after comm
                 while self.bufstat[i] != b')' {
-                    /* XXX: handle closing parens in process name */
-                    i += 1;
+                    i -= 1;
                 }
                 stat = std::str::from_utf8_unchecked(&self.bufstat[(i + 1)..]);
             }
