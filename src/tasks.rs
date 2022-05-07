@@ -31,38 +31,20 @@ struct Pid(u32);
 struct Jiffies(u64, u64);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum TaskState {
-    Sleeping,
-    Running,
-    Uninterruptible,
-    Zombie,
-    Traced,
-    Idle,
-    Unknown,
-}
+struct TaskState(char);
 
 impl<'a> fmt::Display for MaybeSmart<'a, TaskState> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let letter = match self.0 {
-            TaskState::Sleeping => 'S',
-            TaskState::Running => 'R',
-            TaskState::Uninterruptible => 'D',
-            TaskState::Zombie => 'Z',
-            TaskState::Traced => 'T',
-            TaskState::Idle => 'I',
-            TaskState::Unknown => '?',
-        };
-
         let w = f.width().unwrap_or(1);
 
         if !self.1.smart {
-            return write!(f, "{:>w$}", letter);
+            return write!(f, "{:>w$}", self.0 .0);
         }
 
-        match self.0 {
-            TaskState::Running => write!(f, "\x1B[1;93m{:>w$}\x1B[0m", letter),
-            TaskState::Uninterruptible => write!(f, "\x1B[1;95m{:>w$}\x1B[0m", letter),
-            _ => write!(f, "{:>w$}", letter),
+        match self.0 .0 {
+            'R' => write!(f, "\x1B[1;93m{:>w$}\x1B[0m", self.0 .0),
+            'D' => write!(f, "\x1B[1;95m{:>w$}\x1B[0m", self.0 .0),
+            _ => write!(f, "{:>w$}", self.0 .0),
         }
     }
 }
@@ -88,10 +70,10 @@ impl PartialOrd for TaskSort {
 
 impl Ord for TaskSort {
     fn cmp(&self, other: &Self) -> Ordering {
-        match (self.0, other.0) {
-            (TaskState::Uninterruptible, TaskState::Uninterruptible) => self.1.cmp(&other.1),
-            (TaskState::Uninterruptible, _) => Ordering::Greater,
-            (_, TaskState::Uninterruptible) => Ordering::Less,
+        match (self.0 .0, other.0 .0) {
+            ('D', 'D') => self.1.cmp(&other.1),
+            ('D', _) => Ordering::Greater,
+            (_, 'D') => Ordering::Less,
             _ => self.1.cmp(&other.1),
         }
     }
@@ -388,7 +370,7 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
                             None
                         },
                         jiffies: (Jiffies(0, 0), Jiffies(0, 0)),
-                        state: TaskState::Sleeping,
+                        state: TaskState('?'),
                         stale: Stale(false),
                     };
                     self.tasks.insert(taskid, z);
@@ -438,15 +420,7 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
             /* See https://www.kernel.org/doc/html/latest/filesystems/proc.html table 1-4 */
             /* And proc(5) */
             let mut stat = stat.split_ascii_whitespace();
-            let state = match stat.next().unwrap() {
-                "S" => TaskState::Sleeping,
-                "R" => TaskState::Running,
-                "D" => TaskState::Uninterruptible,
-                "Z" => TaskState::Zombie,
-                "T" => TaskState::Traced,
-                "I" => TaskState::Idle,
-                _ => TaskState::Unknown,
-            };
+            let state = TaskState(stat.next().unwrap().chars().next().unwrap());
             let used_jiffies = stat.nth(10).unwrap().parse::<u64>().unwrap()
                 + stat.next().unwrap().parse::<u64>().unwrap();
 
@@ -499,7 +473,7 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
                 Some(x) => x,
                 _ => break,
             };
-            if tasksort.0 == TaskState::Sleeping && tasksort.1 .0 == 0 {
+            if tasksort.0 .0 == 'S' && tasksort.1 .0 == 0 {
                 /* Ran out of interesting tasks */
                 break;
             }
