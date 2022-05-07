@@ -129,8 +129,11 @@ impl Drop for FileDescriptor {
         if self.0 == -1 {
             return;
         }
-        let ret = unsafe { libc::close(self.0) };
-        assert!(ret == 0);
+        unsafe {
+            if libc::close(self.0) != 0 {
+                libc_panic("close()");
+            }
+        }
     }
 }
 
@@ -316,12 +319,9 @@ impl<'a> TaskStats<'a> {
                     // Task is done, this is fine
                     return None;
                 }
-                let msg = std::ffi::CString::new("open()").unwrap();
-                libc::perror(msg.as_ptr());
             }
-
             dbg!(cstr);
-            panic!();
+            libc_panic("open()");
         }
         Some(FileDescriptor(fd))
     }
@@ -405,13 +405,14 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
                 }
             }
             unsafe {
-                assert!(
-                    libc::read(
-                        ent.filedes.as_ref().unwrap().0,
-                        self.bufstat.as_mut_slice().as_mut_ptr() as *mut libc::c_void,
-                        511, // Leave 1 byte for the final \0
-                    ) != -1
+                let ret = libc::read(
+                    ent.filedes.as_ref().unwrap().0,
+                    self.bufstat.as_mut_slice().as_mut_ptr() as *mut libc::c_void,
+                    511, // Leave 1 byte for the final \0
                 );
+                if ret == -1 {
+                    libc_panic("read()");
+                }
 
                 // The stat file contains only numbers, except for the process name (truncated to 16
                 // chars) which is inbetween parentheses. Skip over the process name to avoid
@@ -427,7 +428,9 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
                 ent.filedes = None;
             } else {
                 unsafe {
-                    assert!(libc::lseek(ent.filedes.as_ref().unwrap().0, 0, libc::SEEK_SET) == 0);
+                    if libc::lseek(ent.filedes.as_ref().unwrap().0, 0, libc::SEEK_SET) != 0 {
+                        libc_panic("lseek()");
+                    }
                 }
             }
 

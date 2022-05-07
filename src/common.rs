@@ -435,3 +435,9 @@ where
         Ok(())
     }
 }
+
+pub fn libc_panic(msg: &'static str) -> ! {
+    let msg = std::ffi::CString::new(msg).unwrap();
+    unsafe { libc::perror(msg.as_ptr()) };
+    panic!();
+}
