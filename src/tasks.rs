@@ -87,17 +87,34 @@ impl<'a, 'b> fmt::Display for MaybeSmart<'a, CommandLine<'b>> {
         let len = f.width().unwrap_or(60);
         match self.0 {
             CommandLine(x, y, z) if y.starts_with(x) => {
-                let len = len - y.len() - 1;
-                match self.1.smart {
-                    false => write!(f, "{} {:<len$}", y, z),
-                    true => write!(f, "\x1B[1m{}\x1B[0m {:<len$.len$}", y, z),
+                if len >= y.len() + 1 {
+                    let len = len - y.len() - 1;
+                    match self.1.smart {
+                        false => write!(f, "{} {:<len$}", y, z),
+                        true => write!(f, "\x1B[1m{}\x1B[0m {:<len$.len$}", y, z),
+                    }
+                } else {
+                    /* arg0 is too long, can't even show any args */
+                    match self.1.smart {
+                        false => write!(f, "{:<len$.len$}", y),
+                        true => write!(f, "\x1B[1m{:<len$.len$}\x1B[0m", y),
+                    }
                 }
             }
             CommandLine(x, y, z) => {
-                let len = len - x.len() - y.len() - 4;
-                match self.1.smart {
-                    false => write!(f, "({}) {} {:<len$}", x, y, z),
-                    true => write!(f, "({}) \x1B[1m{}\x1B[0m {:<len$.len$}", x, y, z),
+                if len >= x.len() + y.len() + 4 {
+                    let len = len - x.len() - y.len() - 4;
+                    match self.1.smart {
+                        false => write!(f, "({}) {} {:<len$}", x, y, z),
+                        true => write!(f, "({}) \x1B[1m{}\x1B[0m {:<len$.len$}", x, y, z),
+                    }
+                } else {
+                    /* arg0 is too long, can't even show any args */
+                    let len = len.saturating_sub(x.len() + 3);
+                    match self.1.smart {
+                        false => write!(f, "({}) {:<len$.len$}", x, y),
+                        true => write!(f, "({}) \x1B[1m{:<len$.len$}\x1B[0m", x, y),
+                    }
                 }
             }
         }
