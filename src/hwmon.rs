@@ -31,15 +31,22 @@ impl fmt::Display for Celsius {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-enum Kind {
+enum KeyKind {
     Hwmon(usize),
     Nvml(usize),
+}
+
+#[derive(Copy, Clone)]
+enum DataKind {
+    Temperature(Celsius),
+    Percentage(Percentage),
+    Nothing,
 }
 
 pub struct HwmonStats<'a> {
     settings: &'a Settings,
     /// hwmonX -> label, (label, value)...
-    state: BTreeMap<Kind, (String, BTreeMap<String, (Celsius, Stale)>, Stale)>,
+    state: BTreeMap<KeyKind, (String, BTreeMap<String, (DataKind, Stale)>, Stale)>,
     nvml: Option<nvml_wrapper::Nvml>,
     // internal buffers re-used in update()
     p: PathBuf,
@@ -73,7 +80,7 @@ impl<'a> StatBlock<'a> for HwmonStats<'a> {
 
                 /* XXX: feels clunky */
                 let x = match m.file_name().to_str().unwrap()[5..].parse::<usize>() {
-                    Ok(k) => Kind::Hwmon(k),
+                    Ok(k) => KeyKind::Hwmon(k),
                     _ => continue,
                 };
 
@@ -133,11 +140,12 @@ impl<'a> StatBlock<'a> for HwmonStats<'a> {
                     let ent = match ent.1.get_mut(&self.sb) {
                         Some(ent) => ent,
                         None => {
-                            ent.1.insert(self.sb.clone(), (Celsius(0f32), Stale(false)));
+                            ent.1
+                                .insert(self.sb.clone(), (DataKind::Nothing, Stale(false)));
                             ent.1.get_mut(&self.sb).unwrap()
                         }
                     };
-                    ent.0 = Celsius(input / 1000f32);
+                    ent.0 = DataKind::Temperature(Celsius(input / 1000f32));
                     ent.1 = Stale(false);
 
                     y += 1;
@@ -158,7 +166,7 @@ impl<'a> StatBlock<'a> for HwmonStats<'a> {
                         Ok(device) => device,
                         _ => continue,
                     };
-                    let k = Kind::Nvml(i as usize);
+                    let k = KeyKind::Nvml(i as usize);
 
                     let ent = match self.state.get_mut(&k) {
                         Some(nv) => nv,
@@ -168,20 +176,38 @@ impl<'a> StatBlock<'a> for HwmonStats<'a> {
                             self.state.insert(k, z);
                             /* XXX: yes, this is stupid. Can't insert above ^ because type inference sucks */
                             let ent = self.state.get_mut(&k).unwrap();
-                            ent.1
-                                .insert(String::from("Tgpu"), (Celsius(0f32), Stale(false)));
+                            for k in ["Tgpu", "Vram", "Load"] {
+                                ent.1
+                                    .insert(String::from(k), (DataKind::Nothing, Stale(false)));
+                            }
                             ent
                         }
                     };
                     ent.2 = Stale(false);
 
                     let v = ent.1.get_mut("Tgpu").unwrap();
-                    v.0 .0 = match device
+                    v.0 = match device
                         .temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu)
                     {
-                        Ok(t) => t as f32,
-                        _ => 0f32,
-                    }
+                        Ok(t) => DataKind::Temperature(Celsius(t as f32)),
+                        _ => DataKind::Nothing,
+                    };
+
+                    let v = ent.1.get_mut("Vram").unwrap();
+                    v.0 = match device.memory_info() {
+                        Ok(mem) => DataKind::Percentage(Percentage(
+                            100f32 * mem.used as f32 / mem.total as f32,
+                        )),
+                        _ => DataKind::Nothing,
+                    };
+
+                    let v = ent.1.get_mut("Load").unwrap();
+                    v.0 = match device.utilization_rates() {
+                        Ok(util) => {
+                            DataKind::Percentage(Percentage(util.gpu.max(util.memory) as f32))
+                        }
+                        _ => DataKind::Nothing,
+                    };
                 }
             }
         }
@@ -242,23 +268,43 @@ impl<'a> fmt::Display for HwmonStats<'a> {
                 }
 
                 let label = MaybeSmart(Heading(k), self.settings);
-                let value = MaybeSmart(
-                    Threshold {
-                        val: vv.0,
-                        med: Celsius(50.0),
-                        high: Celsius(70.0),
-                        crit: Celsius(90.0),
-                    },
-                    self.settings,
-                );
-
-                if w > 10 {
-                    let w = w - 6;
-                    write!(f, " {:>w$.w$}{:>6.1}", label, value)?;
-                } else {
-                    let w = w - 4;
-                    write!(f, " {:>w$.w$}{:>4.0}", label, value)?;
-                }
+                match vv.0 {
+                    DataKind::Nothing => {
+                        let w = w - 4;
+                        write!(f, " {:>w$.w$} n/a", label)?;
+                    }
+                    DataKind::Temperature(c) => {
+                        let value = MaybeSmart(
+                            Threshold {
+                                val: c,
+                                med: Celsius(50.0),
+                                high: Celsius(70.0),
+                                crit: Celsius(90.0),
+                            },
+                            self.settings,
+                        );
+                        if w > 10 {
+                            let w = w - 6;
+                            write!(f, " {:>w$.w$}{:>6.1}", label, value)?;
+                        } else {
+                            let w = w - 4;
+                            write!(f, " {:>w$.w$}{:>4.0}", label, value)?;
+                        }
+                    }
+                    DataKind::Percentage(p) => {
+                        let value = MaybeSmart(
+                            Threshold {
+                                val: p,
+                                med: Percentage(50.0),
+                                high: Percentage(80.0),
+                                crit: Percentage(90.0),
+                            },
+                            self.settings,
+                        );
+                        let w = w - 4;
+                        write!(f, " {:>w$.w$}{:>4.0}", label, value)?;
+                    }
+                };
 
                 i += 1;
                 used_cols += 1;

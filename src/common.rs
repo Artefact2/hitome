@@ -115,7 +115,8 @@ pub struct Percentage(pub f32);
 impl Display for Percentage {
     fn fmt(&self, f: &mut Formatter) -> Result {
         let w = f.width().unwrap_or(8) - 1;
-        write!(f, "{:>w$.2}%", self.0)
+        let p = f.precision().unwrap_or(2);
+        write!(f, "{:>w$.p$}%", self.0)
     }
 }
 
@@ -165,7 +166,7 @@ where
 {
     fn fmt(&self, f: &mut Formatter) -> Result {
         let w = f.width().unwrap_or_else(|| self.1.colwidth.get().into());
-        let p = f.precision().unwrap_or(w);
+        let p = f.precision().unwrap_or(2);
         let t = &self.0;
 
         if !self.1.smart {
