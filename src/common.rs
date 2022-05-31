@@ -136,15 +136,16 @@ pub struct MaybeSmart<'a, T>(pub T, pub &'a Settings);
 impl<'a, 'b> Display for MaybeSmart<'a, Heading<'b>> {
     fn fmt(&self, f: &mut Formatter) -> Result {
         let w = f.width().unwrap_or_else(|| self.1.colwidth.get().into());
+        let p = f.precision().unwrap_or(w);
 
         /* XXX: is there a way to not repeat ourselves? */
         match (self.1.smart, f.align()) {
-            (false, Some(Alignment::Center)) => write!(f, "{:^w$}", self.0 .0),
-            (false, Some(Alignment::Left)) => write!(f, "{:<w$}", self.0 .0),
-            (false, _) => write!(f, "{:>w$}", self.0 .0),
-            (true, Some(Alignment::Center)) => write!(f, "\x1B[1m{:^w$}\x1B[0m", self.0 .0),
-            (true, Some(Alignment::Left)) => write!(f, "\x1B[1m{:<w$}\x1B[0m", self.0 .0),
-            (true, _) => write!(f, "\x1B[1m{:>w$}\x1B[0m", self.0 .0),
+            (false, Some(Alignment::Center)) => write!(f, "{:^w$.p$}", self.0 .0),
+            (false, Some(Alignment::Left)) => write!(f, "{:<w$.p$}", self.0 .0),
+            (false, _) => write!(f, "{:>w$.p$}", self.0 .0),
+            (true, Some(Alignment::Center)) => write!(f, "\x1B[1m{:^w$.p$}\x1B[0m", self.0 .0),
+            (true, Some(Alignment::Left)) => write!(f, "\x1B[1m{:<w$.p$}\x1B[0m", self.0 .0),
+            (true, _) => write!(f, "\x1B[1m{:>w$.p$}\x1B[0m", self.0 .0),
         }
     }
 }
@@ -164,24 +165,25 @@ where
 {
     fn fmt(&self, f: &mut Formatter) -> Result {
         let w = f.width().unwrap_or_else(|| self.1.colwidth.get().into());
+        let p = f.precision().unwrap_or(w);
         let t = &self.0;
 
         if !self.1.smart {
-            return write!(f, "{:>w$}", t.val);
+            return write!(f, "{:>w$.p$}", t.val);
         }
 
         if t.val.partial_cmp(&t.med) == Some(Ordering::Less) {
             /* < med */
-            write!(f, "{:>w$}", t.val)
+            write!(f, "{:>w$.p$}", t.val)
         } else if t.val.partial_cmp(&t.high) == Some(Ordering::Less) {
             /* < high: we're med */
-            write!(f, "\x1B[1;93m{:>w$}\x1B[0m", t.val)
+            write!(f, "\x1B[1;93m{:>w$.p$}\x1B[0m", t.val)
         } else if t.val.partial_cmp(&t.crit) == Some(Ordering::Less) {
             /* < crit: we're high */
-            write!(f, "\x1B[1;91m{:>w$}\x1B[0m", t.val)
+            write!(f, "\x1B[1;91m{:>w$.p$}\x1B[0m", t.val)
         } else {
             /* crit */
-            write!(f, "\x1B[1;95m{:>w$}\x1B[0m", t.val)
+            write!(f, "\x1B[1;95m{:>w$.p$}\x1B[0m", t.val)
         }
     }
 }
