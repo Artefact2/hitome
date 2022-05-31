@@ -34,8 +34,6 @@ pub struct HwmonStats<'a> {
     settings: &'a Settings,
     /// hwmonX -> label, (label, value)...
     state: BTreeMap<usize, (String, BTreeMap<String, (Celsius, Stale)>, Stale)>,
-    columns: u16,
-    rows: u16,
     // internal buffers re-used in update()
     p: PathBuf,
     sb: String,
@@ -47,8 +45,6 @@ impl<'a> StatBlock<'a> for HwmonStats<'a> {
         Self {
             settings: s,
             state: Default::default(),
-            columns: 0,
-            rows: 0,
             p: PathBuf::from("/sys/class/hwmon"),
             sb: Default::default(),
             sb2: Default::default(),
@@ -59,9 +55,6 @@ impl<'a> StatBlock<'a> for HwmonStats<'a> {
         for (_, s) in self.state.iter_mut() {
             s.2 = Stale(true);
         }
-
-        self.columns = 0;
-        self.rows = 0;
 
         if let Ok(monitors) = std::fs::read_dir("/sys/class/hwmon") {
             for m in monitors {
@@ -147,12 +140,6 @@ impl<'a> StatBlock<'a> for HwmonStats<'a> {
                 }
 
                 self.p.pop();
-
-                if y > 0 {
-                    self.columns = self.columns.max(1 + y.min(7) as u16);
-                    // Emulate ceil(y/7)
-                    self.rows += (y as u16 + 6) / 7;
-                }
             }
         }
 
@@ -160,14 +147,27 @@ impl<'a> StatBlock<'a> for HwmonStats<'a> {
     }
 
     fn columns(&self) -> u16 {
-        self.columns
+        if self.state.is_empty() {
+            0
+        } else {
+            8
+        }
     }
 
     fn rows(&self) -> u16 {
-        if self.rows > 0 {
-            self.rows + 1
+        if self.state.is_empty() {
+            return 0;
+        }
+
+        let two_cols = self.state.values().all(|v| v.1.len() <= 3);
+        if two_cols {
+            1 + (self.state.len() as u16 + 1) / 2
         } else {
-            0
+            let mut cols = 1;
+            for v in self.state.values() {
+                cols += (v.1.len() as u16 + 6) / 7
+            }
+            cols
         }
     }
 }
@@ -180,23 +180,28 @@ impl<'a> fmt::Display for HwmonStats<'a> {
 
         let newline = MaybeSmart(Newline(), self.settings);
         let w = self.settings.colwidth.get().into();
+        let two_cols = self.state.values().all(|v| v.1.len() <= 3);
+        let mut used_cols = 0;
 
-        for (_, v) in self.state.iter() {
+        for v in self.state.values() {
             if v.1.is_empty() {
                 continue;
             }
 
+            used_cols += 1;
             write!(f, "{:>w$.w$}", v.0)?;
+
             let mut i = 0;
-            for (k, v) in v.1.iter() {
+            for (k, vv) in v.1.iter() {
                 if i > 0 && i % 7 == 0 {
-                    write!(f, "{}", newline)?;
+                    write!(f, "{}{:>w$.w$}", newline, v.0)?;
+                    used_cols = 1;
                 }
 
                 let label = MaybeSmart(Heading(k), self.settings);
                 let value = MaybeSmart(
                     Threshold {
-                        val: v.0,
+                        val: vv.0,
                         med: Celsius(50.0),
                         high: Celsius(70.0),
                         crit: Celsius(90.0),
@@ -206,18 +211,42 @@ impl<'a> fmt::Display for HwmonStats<'a> {
 
                 if w > 10 {
                     let w = w - 6;
-                    write!(f, " {:<w$.w$}{:>6.1}", label, value)?;
+                    write!(f, " {:>w$.w$}{:>6.1}", label, value)?;
                 } else {
                     let w = w - 4;
-                    write!(f, " {:<w$.w$}{:>4.0}", label, value)?;
+                    write!(f, " {:>w$.w$}{:>4.0}", label, value)?;
                 }
 
                 i += 1;
+                used_cols += 1;
             }
 
-            write!(f, "{}", newline)?;
+            if two_cols {
+                if (1..=4).contains(&used_cols) {
+                    for _ in used_cols..4 {
+                        write!(f, " {:>w$.w$}", "")?;
+                    }
+                    write!(f, " ")?;
+                    used_cols = 4;
+                } else if used_cols > 4 {
+                    for _ in used_cols..8 {
+                        write!(f, " {:>w$.w$}", "")?;
+                    }
+                    write!(f, "{}", newline)?;
+                    used_cols = 0;
+                }
+            } else if used_cols > 0 {
+                for _ in used_cols..8 {
+                    write!(f, " {:>w$.w$}", "")?;
+                }
+                write!(f, "{}", newline)?;
+                used_cols = 0;
+            }
         }
 
-        write!(f, "{}", newline)
+        for _ in used_cols..8 {
+            write!(f, " {:>w$.w$}", "")?;
+        }
+        write!(f, "{}{}", newline, newline)
     }
 }
