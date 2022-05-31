@@ -17,6 +17,7 @@ use hitome::blockdev::BlockDeviceStats;
 use hitome::common::*;
 use hitome::cpu::CpuStats;
 use hitome::fs::FilesystemStats;
+use hitome::hwmon::HwmonStats;
 use hitome::mem::MemoryStats;
 use hitome::network::NetworkStats;
 use hitome::pressure::PressureStats;
@@ -132,6 +133,7 @@ fn main() {
     let mut psi = PressureStats::new(&settings);
     let mut cpu_net = MergedStatBlock::<CpuStats, NetworkStats>::new(&settings);
     let mut bdev_fs = MergedStatBlock::<BlockDeviceStats, FilesystemStats>::new(&settings);
+    let mut hwmon = HwmonStats::new(&settings);
     let mut tasks = TaskStats::new(&settings);
 
     println!("Hitome will now wait a while to collect statistics...");
@@ -148,16 +150,17 @@ fn main() {
         }
 
         update_term_dimensions(&settings);
-        update!(mem, psi, cpu_net, bdev_fs);
+        update!(mem, psi, cpu_net, bdev_fs, hwmon);
         let remaining_rows = settings.maxrows.get() as i16
             - mem.rows() as i16
             - psi.rows() as i16
             - cpu_net.rows() as i16
             - bdev_fs.rows() as i16
+            - hwmon.rows() as i16
             - 2;
         tasks.set_max_tasks(remaining_rows.max(5) as u16);
         update!(tasks);
-        write!(w, "{}{}{}{}{}", mem, psi, cpu_net, bdev_fs, tasks).unwrap();
+        write!(w, "{}{}{}{}{}{}", mem, psi, cpu_net, bdev_fs, hwmon, tasks).unwrap();
 
         if settings.smart {
             /* Erase from cursor to end */

@@ -20,6 +20,7 @@ Features
 - System pressure information (CPU/Mem/IO),
 - Usage of each CPU core,
 - Traffic to/from block devices and network interfaces,
+- Hardware temperatures (as reported by the hwmon interfaces),
 - Filesystem usage,
 - Tasks (processes) status and CPU utilisation.
 
