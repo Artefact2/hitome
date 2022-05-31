@@ -30,10 +30,17 @@ impl fmt::Display for Celsius {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum Kind {
+    Hwmon(usize),
+    Nvml(usize),
+}
+
 pub struct HwmonStats<'a> {
     settings: &'a Settings,
     /// hwmonX -> label, (label, value)...
-    state: BTreeMap<usize, (String, BTreeMap<String, (Celsius, Stale)>, Stale)>,
+    state: BTreeMap<Kind, (String, BTreeMap<String, (Celsius, Stale)>, Stale)>,
+    nvml: Option<nvml_wrapper::Nvml>,
     // internal buffers re-used in update()
     p: PathBuf,
     sb: String,
@@ -45,6 +52,7 @@ impl<'a> StatBlock<'a> for HwmonStats<'a> {
         Self {
             settings: s,
             state: Default::default(),
+            nvml: nvml_wrapper::Nvml::init().ok(),
             p: PathBuf::from("/sys/class/hwmon"),
             sb: Default::default(),
             sb2: Default::default(),
@@ -65,7 +73,7 @@ impl<'a> StatBlock<'a> for HwmonStats<'a> {
 
                 /* XXX: feels clunky */
                 let x = match m.file_name().to_str().unwrap()[5..].parse::<usize>() {
-                    Ok(k) => k,
+                    Ok(k) => Kind::Hwmon(k),
                     _ => continue,
                 };
 
@@ -140,6 +148,41 @@ impl<'a> StatBlock<'a> for HwmonStats<'a> {
                 }
 
                 self.p.pop();
+            }
+        }
+
+        if let Some(nvml) = &self.nvml {
+            if let Ok(n) = nvml.device_count() {
+                for i in 0..n {
+                    let device = match nvml.device_by_index(i) {
+                        Ok(device) => device,
+                        _ => continue,
+                    };
+                    let k = Kind::Nvml(i as usize);
+
+                    let ent = match self.state.get_mut(&k) {
+                        Some(nv) => nv,
+                        _ => {
+                            let mut z = (String::new(), Default::default(), Stale(false));
+                            write!(z.0, "nvidia{}", i).unwrap(); /* XXX: find better name */
+                            self.state.insert(k, z);
+                            /* XXX: yes, this is stupid. Can't insert above ^ because type inference sucks */
+                            let ent = self.state.get_mut(&k).unwrap();
+                            ent.1
+                                .insert(String::from("Tgpu"), (Celsius(0f32), Stale(false)));
+                            ent
+                        }
+                    };
+                    ent.2 = Stale(false);
+
+                    let v = ent.1.get_mut("Tgpu").unwrap();
+                    v.0 .0 = match device
+                        .temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu)
+                    {
+                        Ok(t) => t as f32,
+                        _ => 0f32,
+                    }
+                }
             }
         }
 

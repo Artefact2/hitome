@@ -9,6 +9,7 @@ edition = "2021"
 libc = "0.2"
 argh = "0.1.7"
 fnv = "1.0.7"
+nvml-wrapper = "0.8.0"
 
 # see https://github.com/johnthagen/min-sized-rust
 [profile.release]
