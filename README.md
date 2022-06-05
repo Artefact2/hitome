@@ -58,6 +58,7 @@ Dependencies
 
 * Linux kernel
 * A rust toolchain (only for building)
+* NVML (optional; only for querying state of NVIDIA GPUs)
 
 Installation
 ============

@@ -1,1 +1,3 @@
 /target
+/arch/*
+!/arch/PKGBUILD
