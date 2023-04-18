@@ -69,13 +69,18 @@ impl<'a> StatBlock<'a> for BlockDeviceStats<'a> {
                 continue;
             }
 
-            /* Filter out sda1, sda2 etc if we have sda */
-            /* XXX: assumes /proc/diskstats has some inherent sort order (partitions after) */
-            /* XXX: will not work for bdevs with over 10 partitions */
-            if ('0'..'9').contains(&kname.chars().rev().next().unwrap())
-                && self.devices.contains_key(&kname[0..(kname.len() - 1)])
-            {
-                continue;
+            /* Filter out partitions */
+            if kname.starts_with("sd") || kname.starts_with("hd") {
+                if ('0'..'9').contains(&kname.chars().rev().next().unwrap()) {
+                    continue;
+                }
+            } else if kname.starts_with("nvme") {
+                let mut kname = kname.chars().rev();
+                let digit = kname.next().unwrap();
+                let p = kname.next().unwrap();
+                if p == 'p' && ('0'..'9').contains(&digit) {
+                    continue;
+                }
             }
 
             let mut ent = match self.devices.get_mut(kname) {
