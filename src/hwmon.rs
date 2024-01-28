@@ -41,6 +41,7 @@ enum DataKind {
     Temperature(Celsius),
     Percentage(Percentage),
     Bytes(Bytes, Option<Bytes>), /* used, total */
+    Watts(Watts, Option<Watts>), /* used, total */
     Nothing,
 }
 
@@ -153,10 +154,35 @@ impl<'a> StatBlock<'a> for HwmonStats<'a> {
                 }
 
                 if ent.0 == "amdgpu" {
-                    self.p.push("device");
+                    self.sb.clear();
+                    self.sb2.clear();
+                    self.p.push("power1_average");
+                    let input = unsafe { read_to_string_unchecked(&self.p, &mut self.sb) };
+                    self.p.pop();
+                    self.p.push("power1_cap");
+                    let input2 = unsafe { read_to_string_unchecked(&self.p, &mut self.sb2) };
+                    self.p.pop();
+                    if input.is_ok() && input2.is_ok() {
+                        self.sb.pop();
+                        self.sb2.pop();
+                        let ent = match ent.1.get_mut("pwr") {
+                            Some(ent) => ent,
+                            None => {
+                                ent.1
+                                    .insert("pwr".to_string(), (DataKind::Nothing, Stale(false)));
+                                ent.1.get_mut("pwr").unwrap()
+                            }
+                        };
+                        ent.0 = DataKind::Watts(
+                            Watts(self.sb.parse::<u64>().unwrap() / 1000000),
+                            Some(Watts(self.sb2.parse::<u64>().unwrap() / 1000000)),
+                        );
+                        ent.1 = Stale(false);
+                    }
 
                     self.sb.clear();
                     self.sb2.clear();
+                    self.p.push("device");
                     self.p.push("mem_info_vram_used");
                     let input = unsafe { read_to_string_unchecked(&self.p, &mut self.sb) };
                     self.p.pop();
@@ -348,6 +374,23 @@ impl<'a> fmt::Display for HwmonStats<'a> {
                                 med: Bytes(t.0 / 2),
                                 high: Bytes(t.0 * 3 / 4),
                                 crit: Bytes(t.0 * 9 / 10),
+                            },
+                            self.settings,
+                        );
+                        let w = w - 6;
+                        write!(f, " {:>w$.w$}{:>6.0}", label, v)?;
+                    }
+                    DataKind::Watts(v, None) => {
+                        let w = w - 6;
+                        write!(f, " {:>w$.w$}{:>6.0}", label, v)?;
+                    }
+                    DataKind::Watts(v, Some(t)) => {
+                        let v = MaybeSmart(
+                            Threshold {
+                                val: v,
+                                med: Watts(t.0 / 2),
+                                high: Watts(t.0 * 3 / 4),
+                                crit: Watts(t.0 * 9 / 10),
                             },
                             self.settings,
                         );

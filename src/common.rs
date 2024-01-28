@@ -111,6 +111,17 @@ impl Display for Bytes {
 }
 
 #[derive(PartialEq, PartialOrd, Clone, Copy)]
+pub struct Watts(pub u64);
+
+impl Display for Watts {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        let w = f.width().unwrap_or(8) - 1;
+        let p = f.precision().unwrap_or(0);
+        write!(f, "{:>w$.p$}W", self.0)
+    }
+}
+
+#[derive(PartialEq, PartialOrd, Clone, Copy)]
 pub struct Percentage(pub f32);
 
 impl Display for Percentage {
