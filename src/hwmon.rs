@@ -40,6 +40,7 @@ enum KeyKind {
 enum DataKind {
     Temperature(Celsius),
     Percentage(Percentage),
+    Bytes(Bytes),
     Nothing,
 }
 
@@ -149,6 +150,30 @@ impl<'a> StatBlock<'a> for HwmonStats<'a> {
                     ent.1 = Stale(false);
 
                     y += 1;
+                }
+
+                if ent.0 == "amdgpu" {
+                    self.p.push("device");
+
+                    self.sb2.clear();
+                    self.p.push("mem_info_vram_used");
+                    let input = unsafe { read_to_string_unchecked(&self.p, &mut self.sb2) };
+                    self.p.pop();
+                    if input.is_ok() {
+                        self.sb2.pop();
+                        let ent = match ent.1.get_mut("vram") {
+                            Some(ent) => ent,
+                            None => {
+                                ent.1
+                                    .insert("vram".to_string(), (DataKind::Nothing, Stale(false)));
+                                ent.1.get_mut("vram").unwrap()
+                            }
+                        };
+                        ent.0 = DataKind::Bytes(Bytes(self.sb2.parse::<u64>().unwrap()));
+                        ent.1 = Stale(false);
+                    }
+
+                    self.p.pop();
                 }
 
                 if ent.1.len() != y {
@@ -287,8 +312,8 @@ impl<'a> fmt::Display for HwmonStats<'a> {
                             let w = w - 6;
                             write!(f, " {:>w$.w$}{:>6.1}", label, value)?;
                         } else {
-                            let w = w - 4;
-                            write!(f, " {:>w$.w$}{:>4.0}", label, value)?;
+                            let w = w - 6;
+                            write!(f, " {:>w$.w$}{:>6.0}", label, value)?;
                         }
                     }
                     DataKind::Percentage(p) => {
@@ -303,6 +328,10 @@ impl<'a> fmt::Display for HwmonStats<'a> {
                         );
                         let w = w - 4;
                         write!(f, " {:>w$.w$}{:>4.0}", label, value)?;
+                    }
+                    DataKind::Bytes(b) => {
+                        let w = w - 6;
+                        write!(f, " {:>w$.w$}{:>6.0}", label, b)?;
                     }
                 };
 
