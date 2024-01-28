@@ -378,11 +378,11 @@ impl<'a> fmt::Display for HwmonStats<'a> {
                             self.settings,
                         );
                         let w = w - 6;
-                        write!(f, " {:>w$.w$}{:>6.0}", label, v)?;
+                        write!(f, " {:>w$.w$}{:>6.1}", label, v)?;
                     }
                     DataKind::Watts(v, None) => {
                         let w = w - 6;
-                        write!(f, " {:>w$.w$}{:>6.0}", label, v)?;
+                        write!(f, " {:>w$.w$}{:>6.1}", label, v)?;
                     }
                     DataKind::Watts(v, Some(t)) => {
                         let v = MaybeSmart(
