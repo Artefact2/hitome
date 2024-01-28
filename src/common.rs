@@ -90,18 +90,19 @@ pub struct Bytes(pub u64);
 impl Display for Bytes {
     fn fmt(&self, f: &mut Formatter) -> Result {
         let w = f.width().unwrap_or(8) - 1;
+        let p = f.precision().unwrap_or(2);
         if self.0 >= 10000 * 1024 * 1024 * 1024 {
             write!(
                 f,
-                "{:>w$.2}T",
+                "{:>w$.p$}T",
                 self.0 as f32 / (1024. * 1024. * 1024. * 1024.)
             )
         } else if self.0 >= 10000 * 1024 * 1024 {
-            write!(f, "{:>w$.2}G", self.0 as f32 / (1024. * 1024. * 1024.))
+            write!(f, "{:>w$.p$}G", self.0 as f32 / (1024. * 1024. * 1024.))
         } else if self.0 >= 10000 * 1024 {
-            write!(f, "{:>w$.2}M", self.0 as f32 / (1024. * 1024.))
+            write!(f, "{:>w$.p$}M", self.0 as f32 / (1024. * 1024.))
         } else if self.0 > 0 {
-            write!(f, "{:>w$.2}K", self.0 as f32 / 1024.)
+            write!(f, "{:>w$.p$}K", self.0 as f32 / 1024.)
         } else {
             let w = w + 1;
             write!(f, "{:>w$}", ".")
