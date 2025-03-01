@@ -157,8 +157,8 @@ fn main() {
             - cpu_net.rows() as i16
             - bdev_fs.rows() as i16
             - hwmon.rows() as i16
-            - 2;
-        tasks.set_max_tasks(remaining_rows.max(5) as u16);
+            - 3;
+        tasks.set_max_tasks(remaining_rows.max(4) as u16);
         update!(tasks);
         write!(w, "{}{}{}{}{}{}", mem, psi, cpu_net, bdev_fs, hwmon, tasks).unwrap();
 
