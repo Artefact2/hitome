@@ -49,6 +49,7 @@ pub struct HwmonStats<'a> {
     settings: &'a Settings,
     /// hwmonX -> label, (label, value)...
     state: BTreeMap<KeyKind, (String, BTreeMap<String, (DataKind, Stale)>, Stale)>,
+    #[cfg(feature = "nvml")]
     nvml: Option<nvml_wrapper::Nvml>,
     // internal buffers re-used in update()
     p: PathBuf,
@@ -61,6 +62,7 @@ impl<'a> StatBlock<'a> for HwmonStats<'a> {
         Self {
             settings: s,
             state: Default::default(),
+            #[cfg(feature = "nvml")]
             nvml: nvml_wrapper::Nvml::init().ok(),
             p: PathBuf::from("/sys/class/hwmon"),
             sb: Default::default(),
@@ -218,6 +220,7 @@ impl<'a> StatBlock<'a> for HwmonStats<'a> {
             }
         }
 
+        #[cfg(feature = "nvml")]
         if let Some(nvml) = &self.nvml {
             if let Ok(n) = nvml.device_count() {
                 for i in 0..n {

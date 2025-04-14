@@ -65,7 +65,7 @@ Installation
 
 1. Clone this repository: `git clone https://github.com/Artefact2/hitome` then `cd hitome`
 
-2. `cargo build -r`
+2. `cargo build -r` (or `cargo build -r -F nvml` for NVIDIA GPUs)
 
 3. Run hitome with `./target/release/hitome` or copy/symlink this file in your
    `$PATH` (eg `/usr/local/bin` or `~/.local/bin`)
