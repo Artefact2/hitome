@@ -33,7 +33,7 @@ pub struct NetworkStats<'a> {
 }
 
 impl<'a> StatBlock<'a> for NetworkStats<'a> {
-    fn new(s: &'a Settings) -> NetworkStats {
+    fn new(s: &'a Settings) -> NetworkStats<'a> {
         let mut ns = NetworkStats {
             settings: s,
             ifaces: Default::default(),
@@ -64,7 +64,7 @@ impl<'a> StatBlock<'a> for NetworkStats<'a> {
                 continue;
             }
 
-            let mut ent = match self.ifaces.get_mut(kname) {
+            let ent = match self.ifaces.get_mut(kname) {
                 Some(v) => v,
                 _ => {
                     let z = IfaceStats {

@@ -61,7 +61,7 @@ impl<'a> PressureStats<'a> {
 }
 
 impl<'a> StatBlock<'a> for PressureStats<'a> {
-    fn new(s: &'a Settings) -> PressureStats {
+    fn new(s: &'a Settings) -> PressureStats<'a> {
         let z = Threshold {
             val: Percentage(0.0),
             med: Percentage(1.0),

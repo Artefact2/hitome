@@ -54,7 +54,7 @@ pub struct CpuStats<'a> {
 }
 
 impl<'a> StatBlock<'a> for CpuStats<'a> {
-    fn new(s: &'a Settings) -> CpuStats {
+    fn new(s: &'a Settings) -> CpuStats<'a> {
         let mut cpu = CpuStats {
             settings: s,
             state: Default::default(),
@@ -87,7 +87,7 @@ impl<'a> StatBlock<'a> for CpuStats<'a> {
             }
             let cpuid = cpuid.strip_prefix("cpu").unwrap().parse::<usize>().unwrap();
 
-            let mut ent = match self.state.get_mut(&cpuid) {
+            let ent = match self.state.get_mut(&cpuid) {
                 Some(ent) => ent,
                 _ => {
                     let z = CpuTicks {

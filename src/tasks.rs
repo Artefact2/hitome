@@ -377,7 +377,7 @@ impl<'a> StatBlock<'a> for TaskStats<'a> {
             let uptime = self.uptime
                 + self.since_uptime.elapsed().as_millis() as u64 * self.user_hz as u64 / 1000;
 
-            let mut ent = match self.tasks.get_mut(&taskid) {
+            let ent = match self.tasks.get_mut(&taskid) {
                 Some(e) => e,
                 _ => {
                     let z = TaskEntry {

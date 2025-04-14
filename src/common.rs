@@ -368,7 +368,7 @@ where
     T: StatBlock<'a> + Display,
     U: StatBlock<'a> + Display,
 {
-    fn new(s: &'a Settings) -> MergedStatBlock<T, U> {
+    fn new(s: &'a Settings) -> MergedStatBlock<'a, T, U> {
         MergedStatBlock {
             t: T::new(s),
             u: U::new(s),

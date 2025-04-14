@@ -33,7 +33,7 @@ pub struct FilesystemStats<'a> {
 }
 
 impl<'a> StatBlock<'a> for FilesystemStats<'a> {
-    fn new(s: &'a Settings) -> FilesystemStats {
+    fn new(s: &'a Settings) -> FilesystemStats<'a> {
         FilesystemStats {
             settings: s,
             filesystems: BTreeMap::new(),
@@ -86,7 +86,7 @@ impl<'a> StatBlock<'a> for FilesystemStats<'a> {
 
             let (mountpoint, _) = mountpoint.rsplit_once(" with fstype ").unwrap();
 
-            let mut ent = match self.filesystems.get_mut(mountpoint) {
+            let ent = match self.filesystems.get_mut(mountpoint) {
                 Some(v) => v,
                 _ => {
                     self.filesystems.insert(

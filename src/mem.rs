@@ -35,7 +35,7 @@ pub struct MemoryStats<'a> {
 }
 
 impl<'a> StatBlock<'a> for MemoryStats<'a> {
-    fn new(s: &'a Settings) -> MemoryStats {
+    fn new(s: &'a Settings) -> MemoryStats<'a> {
         let z = Threshold {
             val: Bytes(0),
             med: Bytes(1),

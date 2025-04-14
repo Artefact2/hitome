@@ -37,7 +37,7 @@ pub struct BlockDeviceStats<'a> {
 }
 
 impl<'a> StatBlock<'a> for BlockDeviceStats<'a> {
-    fn new(s: &'a Settings) -> BlockDeviceStats {
+    fn new(s: &'a Settings) -> BlockDeviceStats<'a> {
         let mut bdev = BlockDeviceStats {
             settings: s,
             devices: BTreeMap::new(),
@@ -83,7 +83,7 @@ impl<'a> StatBlock<'a> for BlockDeviceStats<'a> {
                 }
             }
 
-            let mut ent = match self.devices.get_mut(kname) {
+            let ent = match self.devices.get_mut(kname) {
                 Some(v) => v,
                 _ => {
                     let z = DevStats {
